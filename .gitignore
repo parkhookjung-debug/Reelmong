@@ -1,0 +1,10 @@
+.env
+__pycache__/
+*.pyc
+data/output/
+data/bgm/**/*.mp3
+data/bgm/**/*.wav
+data/images/*
+!data/images/.gitkeep
+!data/bgm/**/.gitkeep
+.venv/

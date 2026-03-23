@@ -1,0 +1,28 @@
+# 릴몽 - AI 기반 F&B 매장 홍보 숏폼 자동 생성 시스템
+# 모든 모델 무료 로컬 실행
+
+# Step 1: Vision (BLIP 이미지 캡셔닝)
+transformers>=4.36.0
+torch>=2.0.0
+Pillow>=10.0.0
+python-dotenv>=1.0.0
+
+# Step 1+2: LLM (Ollama 로컬)
+requests>=2.31.0
+
+# Step 3: Audio (TTS + BGM)
+pydub>=0.25.1
+
+# Step 4: Video Rendering
+moviepy>=1.0.3
+
+# Step 5: Evaluation
+# clip-score (추후 추가)
+
+# Web Framework
+fastapi>=0.100.0
+uvicorn>=0.23.0
+python-multipart>=0.0.6
+
+# Utilities
+aiofiles>=23.0.0

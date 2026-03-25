@@ -14,10 +14,11 @@ requests>=2.31.0
 pydub>=0.25.1
 
 # Step 4: Video Rendering
-moviepy>=1.0.3
+moviepy>=2.0.0
+numpy>=1.24.0
 
 # Step 5: Evaluation
-# clip-score (추후 추가)
+# clip-score (추후 추가 가능)
 
 # Web Framework
 fastapi>=0.100.0

@@ -152,6 +152,55 @@ def main():
     print(f"    음성 파일: {voice_result['full_audio_path']}")
     print()
 
+    # ─── STEP 3.5: 멜로디 생성 + 믹싱 ──────────────────
+    print("=" * 40)
+    print("  STEP 3.5: 멜로디 생성 (MusicGen)")
+    print("=" * 40)
+
+    from src.step3_voice import is_musicgen_available, AudioMixer
+
+    final_audio_path = voice_result["full_audio_path"]  # 기본값: TTS만
+
+    if is_musicgen_available():
+        try:
+            from src.step3_voice import MelodyGenerator
+            melody_gen = MelodyGenerator()
+
+            melody_duration = voice_result["total_duration_ms"] / 1000.0
+            melody_path = str(OUTPUT_DIR / "voice" / "melody.wav")
+
+            melody_gen.generate(
+                category=analysis.category,
+                duration_s=melody_duration,
+                output_path=melody_path,
+            )
+
+            # TTS + 멜로디 믹싱
+            print("\n[*] TTS + 멜로디 믹싱 중...")
+            mixer = AudioMixer()
+            final_audio_path = str(OUTPUT_DIR / "voice" / "final_mixed.mp3")
+
+            mixer.mix(
+                voice_path=voice_result["full_audio_path"],
+                melody_path=melody_path,
+                output_path=final_audio_path,
+                voice_lines=voice_result["lines"],
+            )
+
+            print(f"[v] 멜로디 + 음성 믹싱 완료!")
+            print(f"    최종 오디오: {Path(final_audio_path).name}")
+
+        except Exception as e:
+            print(f"[!] 멜로디 생성 실패: {e}")
+            print("    → TTS 음성만으로 진행합니다.")
+            final_audio_path = voice_result["full_audio_path"]
+    else:
+        print("[!] MusicGen 미설치 - TTS 음성만으로 진행합니다.")
+        print("    → 멜로디 추가하려면: pip install transformers torch")
+        print("    → MusicGen-small 모델이 자동 다운로드됩니다 (~300MB)")
+
+    print()
+
     # ─── STEP 4+5: 애니메이션 + 렌더링 ─────────────────
     print("=" * 40)
     print("  STEP 4+5: 애니메이션 + 영상 렌더링")
@@ -167,7 +216,7 @@ def main():
     output_video = str(OUTPUT_DIR / "singing_food.mp4")
     result_path = renderer.render(
         image_path=image_path,
-        audio_path=voice_result["full_audio_path"],
+        audio_path=final_audio_path,
         lyrics_lines=voice_result["lines"],
         title=lyrics_data["title"],
         output_path=output_video,

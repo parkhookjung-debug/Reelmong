@@ -1,0 +1,8 @@
+.env
+__pycache__/
+*.pyc
+data/output/
+data/input/*
+!data/input/.gitkeep
+.venv/
+.vscode/

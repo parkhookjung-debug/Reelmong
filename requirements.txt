@@ -1,0 +1,19 @@
+# 맛노래 - 음식이 노래하는 AI 숏폼 생성기
+# 모든 모델 무료 로컬 실행
+
+# Step 1: Vision (BLIP 이미지 캡셔닝)
+transformers>=4.36.0
+torch>=2.0.0
+Pillow>=10.0.0
+python-dotenv>=1.0.0
+
+# Step 1+2: LLM (Ollama 로컬)
+requests>=2.31.0
+
+# Step 3: Voice (Edge TTS - 무료)
+edge-tts>=6.1.0
+pydub>=0.25.1
+
+# Step 4+5: Animation + Rendering
+moviepy>=2.0.0
+numpy>=1.24.0

@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>맛노래 🍔🎵</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', 'Malgun Gothic', sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px 16px 80px;
+      color: #e0e0e0;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 48px;
+    }
+    header h1 {
+      font-size: 3rem;
+      font-weight: 900;
+      background: linear-gradient(90deg, #ff6b6b, #ffd93d, #6bcb77, #4d96ff);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      letter-spacing: -1px;
+    }
+    header p {
+      margin-top: 10px;
+      font-size: 1.05rem;
+      color: #aaa;
+    }
+    header .badges {
+      margin-top: 14px;
+      display: flex;
+      justify-content: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .badge {
+      background: rgba(255,255,255,0.1);
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 20px;
+      padding: 4px 12px;
+      font-size: 0.78rem;
+      color: #ccc;
+    }
+
+    /* 업로드 영역 */
+    .card {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 20px;
+      padding: 36px;
+      width: 100%;
+      max-width: 520px;
+      backdrop-filter: blur(10px);
+    }
+
+    .drop-zone {
+      border: 2px dashed rgba(255,255,255,0.25);
+      border-radius: 14px;
+      padding: 48px 24px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.25s;
+      position: relative;
+    }
+    .drop-zone:hover, .drop-zone.drag-over {
+      border-color: #ffd93d;
+      background: rgba(255,217,61,0.05);
+    }
+    .drop-zone input[type="file"] {
+      position: absolute; inset: 0; opacity: 0; cursor: pointer;
+    }
+    .drop-zone .icon { font-size: 3.2rem; margin-bottom: 12px; }
+    .drop-zone p { color: #bbb; font-size: 0.95rem; line-height: 1.6; }
+    .drop-zone .hint { font-size: 0.78rem; color: #777; margin-top: 6px; }
+
+    #preview-wrap { display: none; margin-top: 20px; text-align: center; }
+    #preview-wrap img {
+      max-height: 200px;
+      border-radius: 12px;
+      border: 2px solid rgba(255,255,255,0.15);
+      object-fit: cover;
+    }
+    #preview-name { margin-top: 8px; font-size: 0.85rem; color: #888; }
+
+    .btn-generate {
+      display: block;
+      width: 100%;
+      margin-top: 24px;
+      padding: 16px;
+      font-size: 1.15rem;
+      font-weight: 700;
+      border: none;
+      border-radius: 12px;
+      background: linear-gradient(90deg, #ff6b6b, #ffd93d);
+      color: #1a1a2e;
+      cursor: pointer;
+      transition: opacity 0.2s, transform 0.1s;
+    }
+    .btn-generate:hover { opacity: 0.9; transform: translateY(-1px); }
+    .btn-generate:active { transform: translateY(0); }
+    .btn-generate:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+    /* 진행 상황 */
+    #progress-section { display: none; margin-top: 32px; width: 100%; max-width: 520px; }
+
+    .progress-card {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 20px;
+      padding: 28px;
+      backdrop-filter: blur(10px);
+    }
+    .progress-title {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 18px;
+      color: #ffd93d;
+    }
+
+    .progress-bar-wrap {
+      background: rgba(255,255,255,0.1);
+      border-radius: 8px;
+      height: 10px;
+      overflow: hidden;
+      margin-bottom: 10px;
+    }
+    .progress-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #ff6b6b, #ffd93d, #6bcb77);
+      border-radius: 8px;
+      transition: width 0.5s ease;
+      width: 0%;
+    }
+
+    .steps {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 16px;
+    }
+    .step-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.88rem;
+      color: #888;
+      transition: color 0.3s;
+    }
+    .step-item.active { color: #ffd93d; }
+    .step-item.done { color: #6bcb77; }
+    .step-dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      background: #444;
+      flex-shrink: 0;
+      transition: background 0.3s;
+    }
+    .step-item.active .step-dot { background: #ffd93d; box-shadow: 0 0 6px #ffd93d; }
+    .step-item.done .step-dot { background: #6bcb77; }
+
+    .status-msg {
+      margin-top: 14px;
+      font-size: 0.9rem;
+      color: #aaa;
+      min-height: 20px;
+    }
+
+    /* 결과 */
+    #result-section { display: none; margin-top: 32px; width: 100%; max-width: 520px; }
+
+    .result-card {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 20px;
+      padding: 28px;
+      backdrop-filter: blur(10px);
+      text-align: center;
+    }
+    .result-card h2 {
+      font-size: 1.4rem;
+      margin-bottom: 6px;
+      background: linear-gradient(90deg, #ff6b6b, #ffd93d);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .result-card .food-name { font-size: 0.9rem; color: #888; margin-bottom: 20px; }
+
+    video {
+      width: 100%;
+      border-radius: 14px;
+      background: #000;
+      margin-bottom: 16px;
+    }
+
+    .lyrics-box {
+      background: rgba(0,0,0,0.25);
+      border-radius: 10px;
+      padding: 16px;
+      text-align: left;
+      margin-bottom: 20px;
+    }
+    .lyrics-box h3 { font-size: 0.8rem; color: #777; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px; }
+    .lyrics-box p { font-size: 0.92rem; color: #ccc; line-height: 1.9; }
+
+    .btn-download {
+      display: inline-block;
+      padding: 13px 32px;
+      font-size: 1rem;
+      font-weight: 700;
+      border: none;
+      border-radius: 10px;
+      background: linear-gradient(90deg, #4d96ff, #6bcb77);
+      color: #fff;
+      cursor: pointer;
+      text-decoration: none;
+      transition: opacity 0.2s;
+    }
+    .btn-download:hover { opacity: 0.85; }
+
+    .btn-retry {
+      display: inline-block;
+      margin-top: 12px;
+      padding: 10px 24px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 10px;
+      background: transparent;
+      color: #aaa;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-retry:hover { background: rgba(255,255,255,0.08); color: #fff; }
+
+    .error-msg {
+      background: rgba(255, 80, 80, 0.15);
+      border: 1px solid rgba(255, 80, 80, 0.3);
+      border-radius: 10px;
+      padding: 14px;
+      color: #ff9090;
+      font-size: 0.9rem;
+      text-align: left;
+      display: none;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner {
+      display: inline-block;
+      width: 16px; height: 16px;
+      border: 2px solid rgba(255,255,255,0.2);
+      border-top-color: #ffd93d;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>맛노래 🍔🎵</h1>
+  <p>음식 사진 한 장 → AI가 노래하는 숏폼 영상으로!</p>
+  <div class="badges">
+    <span class="badge">🔍 BLIP 이미지 분석</span>
+    <span class="badge">🧠 Ollama LLM 가사</span>
+    <span class="badge">🗣️ Edge TTS 음성</span>
+    <span class="badge">🎵 MusicGen 멜로디</span>
+    <span class="badge">🎬 립싱크 영상</span>
+    <span class="badge">✅ 전부 무료</span>
+  </div>
+</header>
+
+<!-- 업로드 카드 -->
+<div class="card" id="upload-card">
+  <div class="drop-zone" id="drop-zone">
+    <input type="file" id="file-input" accept=".jpg,.jpeg,.png,.webp" />
+    <div class="icon">🍱</div>
+    <p>음식 사진을 여기에 끌어다 놓거나<br>클릭해서 선택하세요</p>
+    <p class="hint">JPG · PNG · WEBP · 최대 20MB</p>
+  </div>
+
+  <div id="preview-wrap">
+    <img id="preview-img" src="" alt="미리보기" />
+    <p id="preview-name"></p>
+  </div>
+
+  <button class="btn-generate" id="btn-generate" disabled>
+    🎵 노래 만들기
+  </button>
+</div>
+
+<!-- 진행 상황 -->
+<div id="progress-section">
+  <div class="progress-card">
+    <div class="progress-title"><span class="spinner"></span> 맛노래 생성 중...</div>
+    <div class="progress-bar-wrap">
+      <div class="progress-bar-fill" id="progress-fill"></div>
+    </div>
+    <div class="steps">
+      <div class="step-item" id="step-analyze"><span class="step-dot"></span>1단계: 음식 이미지 분석 (BLIP + Ollama)</div>
+      <div class="step-item" id="step-lyrics"><span class="step-dot"></span>2단계: 노래 가사 생성</div>
+      <div class="step-item" id="step-voice"><span class="step-dot"></span>3단계: 보컬 생성 (Bark ♪ / Edge TTS)</div>
+      <div class="step-item" id="step-melody"><span class="step-dot"></span>3.5단계: AI 멜로디 생성 (MusicGen)</div>
+      <div class="step-item" id="step-video"><span class="step-dot"></span>4단계: 립싱크 영상 렌더링</div>
+    </div>
+    <div class="status-msg" id="status-msg">준비 중...</div>
+    <div class="error-msg" id="error-msg"></div>
+  </div>
+</div>
+
+<!-- 결과 -->
+<div id="result-section">
+  <div class="result-card">
+    <h2 id="result-title">노래 제목</h2>
+    <p class="food-name" id="result-food"></p>
+    <video id="result-video" controls playsinline loop></video>
+    <div class="lyrics-box">
+      <h3>가사</h3>
+      <p id="result-lyrics"></p>
+    </div>
+    <a class="btn-download" id="btn-download" href="#">⬇️ 영상 다운로드</a>
+    <br>
+    <button class="btn-retry" onclick="resetUI()">↩ 다른 음식으로 만들기</button>
+  </div>
+</div>
+
+<script>
+  let currentJobId = null;
+  let pollTimer = null;
+  let selectedFile = null;
+
+  const dropZone = document.getElementById('drop-zone');
+  const fileInput = document.getElementById('file-input');
+  const previewWrap = document.getElementById('preview-wrap');
+  const previewImg = document.getElementById('preview-img');
+  const previewName = document.getElementById('preview-name');
+  const btnGenerate = document.getElementById('btn-generate');
+
+  // 드래그 앤 드롭
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    const f = e.dataTransfer.files[0];
+    if (f) handleFile(f);
+  });
+
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files[0]) handleFile(fileInput.files[0]);
+  });
+
+  function handleFile(file) {
+    selectedFile = file;
+    const reader = new FileReader();
+    reader.onload = e => {
+      previewImg.src = e.target.result;
+      previewName.textContent = file.name;
+      previewWrap.style.display = 'block';
+      btnGenerate.disabled = false;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  btnGenerate.addEventListener('click', startGeneration);
+
+  async function startGeneration() {
+    if (!selectedFile) return;
+
+    btnGenerate.disabled = true;
+    document.getElementById('upload-card').style.opacity = '0.5';
+    document.getElementById('upload-card').style.pointerEvents = 'none';
+    document.getElementById('progress-section').style.display = 'block';
+    document.getElementById('result-section').style.display = 'none';
+    document.getElementById('error-msg').style.display = 'none';
+    resetSteps();
+
+    const formData = new FormData();
+    formData.append('image', selectedFile);
+
+    try {
+      const res = await fetch('/upload', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (data.error) { showError(data.error); return; }
+
+      currentJobId = data.job_id;
+      pollTimer = setInterval(pollStatus, 1500);
+    } catch (err) {
+      showError('업로드 실패: ' + err.message);
+    }
+  }
+
+  async function pollStatus() {
+    if (!currentJobId) return;
+    try {
+      const res = await fetch(`/status/${currentJobId}`);
+      const data = await res.json();
+
+      updateProgress(data);
+
+      if (data.done) {
+        clearInterval(pollTimer);
+        if (data.error) {
+          showError(data.error);
+        } else if (data.result) {
+          showResult(data.result);
+        }
+      }
+    } catch (err) {
+      console.error('폴링 오류:', err);
+    }
+  }
+
+  const STEP_MAP = {
+    '분석': 'step-analyze', '분석완료': 'step-analyze',
+    '가사': 'step-lyrics', '가사완료': 'step-lyrics',
+    '음성': 'step-voice', '음성완료': 'step-voice',
+    '멜로디': 'step-melody', '믹싱완료': 'step-melody',
+    '영상': 'step-video', '완료': 'step-video',
+  };
+  const STEP_ORDER = ['step-analyze', 'step-lyrics', 'step-voice', 'step-melody', 'step-video'];
+
+  function resetSteps() {
+    STEP_ORDER.forEach(id => {
+      const el = document.getElementById(id);
+      el.classList.remove('active', 'done');
+    });
+  }
+
+  function updateProgress(data) {
+    document.getElementById('progress-fill').style.width = data.progress + '%';
+    document.getElementById('status-msg').textContent = data.message || '';
+
+    const activeEl = STEP_MAP[data.step];
+    if (!activeEl) return;
+
+    const activeIdx = STEP_ORDER.indexOf(activeEl);
+    STEP_ORDER.forEach((id, i) => {
+      const el = document.getElementById(id);
+      el.classList.remove('active', 'done');
+      if (i < activeIdx) el.classList.add('done');
+      else if (i === activeIdx) el.classList.add('active');
+    });
+
+    if (data.step === '완료') {
+      STEP_ORDER.forEach(id => {
+        const el = document.getElementById(id);
+        el.classList.remove('active');
+        el.classList.add('done');
+      });
+    }
+  }
+
+  function showResult(result) {
+    document.getElementById('result-title').textContent = result.title;
+    document.getElementById('result-food').textContent = result.food_name + ' (' + result.duration_s.toFixed(1) + '초)';
+    document.getElementById('result-lyrics').innerHTML = result.lyrics.join('<br>');
+
+    const video = document.getElementById('result-video');
+    video.src = result.video_url + '?t=' + Date.now();
+    video.load();
+
+    document.getElementById('btn-download').href = `/result/${currentJobId}/download`;
+
+    document.getElementById('progress-section').style.display = 'none';
+    document.getElementById('result-section').style.display = 'block';
+  }
+
+  function showError(msg) {
+    const el = document.getElementById('error-msg');
+    el.textContent = '⚠️ ' + msg;
+    el.style.display = 'block';
+    document.getElementById('upload-card').style.opacity = '1';
+    document.getElementById('upload-card').style.pointerEvents = '';
+    btnGenerate.disabled = false;
+  }
+
+  function resetUI() {
+    clearInterval(pollTimer);
+    currentJobId = null;
+    selectedFile = null;
+    fileInput.value = '';
+    previewWrap.style.display = 'none';
+    btnGenerate.disabled = true;
+    document.getElementById('upload-card').style.opacity = '1';
+    document.getElementById('upload-card').style.pointerEvents = '';
+    document.getElementById('progress-section').style.display = 'none';
+    document.getElementById('result-section').style.display = 'none';
+    document.getElementById('error-msg').style.display = 'none';
+    document.getElementById('progress-fill').style.width = '0%';
+    resetSteps();
+  }
+</script>
+</body>
+</html>

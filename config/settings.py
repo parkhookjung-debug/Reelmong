@@ -23,8 +23,8 @@ OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma3:4b")
 
 # TTS 설정 (Edge TTS - 무료)
-TTS_VOICE = "ko-KR-SunHiNeural"  # 밝고 친근한 여성 목소리
-TTS_RATE = "+10%"  # 약간 빠르게 (노래 느낌)
+TTS_VOICE = "ko-KR-InJoonNeural"  # 남성 목소리 (랩에 적합)
+TTS_RATE = "+25%"  # 속사포 랩 속도
 
 # 영상 설정
 VIDEO_WIDTH = 1080

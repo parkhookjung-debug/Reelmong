@@ -12,18 +12,18 @@ import torch
 import scipy.io.wavfile as wavfile
 
 
-# 음식 카테고리별 멜로디 프롬프트 (영어)
+# 음식 카테고리별 트랩/힙합 비트 프롬프트 (영어)
 MELODY_PROMPTS = {
-    "한식": "warm gentle Korean style acoustic melody, soft piano and traditional instruments, medium tempo, cheerful",
-    "중식": "upbeat Chinese pop style melody, energetic, fun, bright synth and percussion",
-    "일식": "calm elegant Japanese jazz melody, soft piano, smooth, relaxing",
-    "양식": "romantic pop melody, acoustic guitar, warm, medium tempo, elegant",
-    "카페": "lo-fi chill hop beat, acoustic guitar, dreamy, relaxing coffee shop music",
-    "디저트": "cute bubbly pop melody, playful xylophone, sweet, happy, bouncy",
-    "치킨": "fun upbeat hip hop beat, energetic drums, party vibe, exciting",
-    "피자": "energetic rock melody, electric guitar, fun, exciting, fast tempo",
-    "분식": "catchy Korean trot style melody, upbeat, playful accordion, fun retro",
-    "기타": "happy upbeat pop melody, bright, cheerful, catchy, medium tempo",
+    "한식": "heavy 808 bass trap beat, aggressive rap instrumental, dark Korean vibe, fast tempo",
+    "중식": "hard trap beat, 808 bass, energetic hip-hop instrumental, punchy drums, fast",
+    "일식": "lo-fi trap beat, deep 808, smooth rap instrumental, atmospheric, cool",
+    "양식": "hard hitting trap beat, 808 sub bass, aggressive rap instrumental, dark",
+    "카페": "chill trap beat, 808 bass, smooth hip-hop instrumental, laid-back but hard",
+    "디저트": "bouncy trap beat, playful 808 bass, fun hip-hop instrumental, energetic",
+    "치킨": "heavy 808 bass, fast trap hip-hop beat, aggressive rap instrumental, dark vibe",
+    "피자": "hard rock trap fusion, distorted 808, aggressive rap instrumental, intense",
+    "분식": "hard trap beat, punchy 808 bass, street hip-hop instrumental, raw energy",
+    "기타": "heavy 808 bass, fast trap hip-hop beat, aggressive rap instrumental, dark vibe",
 }
 
 

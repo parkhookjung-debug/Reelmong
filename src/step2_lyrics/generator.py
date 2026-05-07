@@ -97,40 +97,34 @@ class LyricsGenerator:
         return result
 
     def _generate_lyrics(self, analysis: FoodAnalysis, style: dict) -> dict:
-        prompt = f"""당신은 음식을 의인화하여 재밌는 노래 가사를 만드는 작사가입니다.
+        prompt = f"""너는 언더그라운드 무대 위에서 마이크를 쥔 거친 힙합 래퍼야.
+아래 음식을 주제로 15초 분량의 빠르고 강렬한 속사포 랩 가사를 써줘.
 
 ## 음식 정보
 - 음식: {analysis.food_name}
-- 카테고리: {analysis.category}
-- 묘사: {analysis.description}
-- 재료: {', '.join(analysis.ingredients) if analysis.ingredients else '알 수 없음'}
-- 맛: {', '.join(analysis.taste_keywords) if analysis.taste_keywords else '맛있는'}
 - 성격: {analysis.personality}
-- 감정: {analysis.emotion}
-
-## 노래 스타일
+- 맛: {', '.join(analysis.taste_keywords) if analysis.taste_keywords else '맛있는'}
 - 분위기: {style['mood']}
-- 템포: {style['tempo']}
-- 감정: {style['emotion']}
 
-## 작사 규칙
-1. 음식이 1인칭("나")으로 자기를 소개하며 부르는 노래
-2. 4~6줄의 짧은 가사 (각 줄 10~20자)
-3. 재미있고 중독성 있는 가사 (말장난, 의성어 환영)
-4. 한국어로 작성
-5. TTS로 읽었을 때 리듬감 있게
-6. 후렴구 느낌의 반복 구절 포함
+## 작성 규칙
+1. 음식이 1인칭("나")으로 랩하는 가사
+2. 딱 6줄 (각 줄 10~20자)
+3. 문장 끝마다 라임(각운) 철저히 맞추기
+4. 의성어·반복 리듬 환영 (예: 빠삭빠삭, 쫀득쫀득)
+5. 강렬하고 중독성 있게
+6. 절대 금지: "verse:", "hook:", "후렴:", "1절:" 같은 레이블 붙이지 말 것. 가사 내용만.
 
-아래 JSON 형식으로만 응답하세요.
+JSON 형식으로만 응답:
 
 {{
-  "title": "노래 제목",
+  "title": "랩 제목",
   "lyrics": [
-    "첫 번째 줄 가사",
-    "두 번째 줄 가사",
-    "세 번째 줄 가사",
-    "네 번째 줄 가사",
-    "다섯 번째 줄 가사 (후렴)"
+    "첫째 줄 가사",
+    "둘째 줄 가사",
+    "셋째 줄 가사",
+    "넷째 줄 가사",
+    "다섯째 줄 가사",
+    "여섯째 줄 가사"
   ]
 }}"""
 
@@ -138,18 +132,19 @@ class LyricsGenerator:
         return self._parse_json_from_response(response_text)
 
     def _fallback_lyrics(self, analysis: FoodAnalysis, style: dict) -> dict:
-        """LLM 실패 시 기본 가사"""
+        """LLM 실패 시 기본 랩 가사"""
         name = analysis.food_name or "맛있는 음식"
         taste = analysis.taste_keywords[0] if analysis.taste_keywords else "맛있는"
 
         return {
-            "title": f"나는 {name}",
+            "title": f"{name} 랩",
             "lyrics": [
-                f"안녕 나는 {name}이야",
-                f"{taste} 맛이 내 매력이지",
-                "한 입 먹으면 못 멈춰",
-                "자꾸자꾸 생각나",
-                f"나는 {name} 날 먹어줘",
+                f"나는 {name} 최강의 맛",
+                f"{taste} 향기로 너를 잡아",
+                "한 입 베어물면 눈이 번쩍",
+                "세상 모든 걱정 다 박살",
+                f"{name} {name} 나를 먹어",
+                "배달 앱 켜고 지금 당장",
             ],
         }
 

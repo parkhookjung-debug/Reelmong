@@ -4,6 +4,7 @@
 - 프레임별 입 열림/닫힘 애니메이션
 - 가사 자막 오버레이 (현재 줄 하이라이트)
 - 살짝 흔들림 효과 (노래하는 느낌)
+- rembg 배경 제거 + 카테고리 그라디언트 배경 합성 지원
 """
 import numpy as np
 from pathlib import Path
@@ -71,6 +72,7 @@ class VideoRenderer:
         lyrics_lines: list[dict],
         title: str,
         output_path: str,
+        food_category: str = "기타",
     ) -> str:
         """최종 영상 렌더링
 
@@ -80,11 +82,13 @@ class VideoRenderer:
             lyrics_lines: [{"text": ..., "start_ms": ..., "duration_ms": ...}, ...]
             title: 노래 제목
             output_path: 출력 MP4 경로
+            food_category: 음식 카테고리 (배경 색상 결정)
         """
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
 
-        # 1) 이미지 준비
-        print("    [이미지] 로딩 및 리사이즈...")
+        # 1) 이미지 준비 (rembg 배경 제거 시도)
+        print("    [이미지] 로딩 및 전처리...")
+        image_path = self._preprocess_image(image_path, food_category, output_path)
         base_img = Image.open(image_path).convert("RGB")
         base_img = _fit_image(base_img, self.width, self.height)
 
@@ -99,29 +103,62 @@ class VideoRenderer:
         duration = total_frames / self.fps
 
         # 3) 프레임 생성 함수
+        W, H = base_img.size
+
         def make_frame(t):
             frame_idx = min(int(t * self.fps), total_frames - 1)
-
-            # 입 열림 정도
             openness = openness_data[frame_idx] if frame_idx < len(openness_data) else 0.0
 
-            # 카툰 얼굴 합성
+            # ── 댄스 파라미터 (오디오 진폭 연동) ──────────────
+            energy = openness  # 0~1
+
+            # 1) 통통 튀기기: 위아래 바운스 (빠른 주기)
+            bounce_y = np.sin(t * 7.0) * 14 * energy
+
+            # 2) 좌우 스웨이 (느린 주기)
+            sway_x = np.sin(t * 3.5) * 8 * energy
+
+            # 3) 살짝 기울기 (회전)
+            tilt_deg = np.sin(t * 4.0) * 4 * energy
+
+            # 4) 스케일 펄스 (박자에 맞춰 살짝 커졌다 작아짐)
+            scale = 1.0 + np.sin(t * 7.0) * 0.025 * energy
+
+            # ── PIL 변환 적용 ──────────────────────────────────
+            # 입 열림/닫힘 합성
             frame_img = self.face_composer.compose_frame(
                 base_img,
                 mouth_openness=openness,
                 face_scale=0.3,
             )
 
-            # 살짝 흔들림 (노래하는 느낌)
-            if openness > 0.1:
-                shake_x = int(np.sin(t * 8) * 2 * openness)
-                shake_y = int(np.cos(t * 6) * 1.5 * openness)
-                # PIL shift
-                frame_img = frame_img.transform(
-                    frame_img.size, Image.AFFINE,
-                    (1, 0, -shake_x, 0, 1, -shake_y),
-                    fillcolor=(0, 0, 0, 255),
+            # 회전 + 스케일
+            if abs(tilt_deg) > 0.1 or abs(scale - 1.0) > 0.001:
+                frame_img = frame_img.convert("RGBA")
+                cx, cy = W / 2, H / 2
+                frame_img = frame_img.rotate(
+                    tilt_deg,
+                    resample=Image.BICUBIC,
+                    center=(cx, cy),
+                    expand=False,
                 )
+                if abs(scale - 1.0) > 0.001:
+                    new_w = int(W * scale)
+                    new_h = int(H * scale)
+                    frame_img = frame_img.resize((new_w, new_h), Image.BICUBIC)
+                    # 중앙 크롭으로 원래 크기 유지
+                    left = (new_w - W) // 2
+                    top = (new_h - H) // 2
+                    frame_img = frame_img.crop((left, top, left + W, top + H))
+
+            # 이동 (bounce + sway)
+            tx = int(sway_x)
+            ty = int(bounce_y)
+            if tx != 0 or ty != 0:
+                frame_img = frame_img.convert("RGBA")
+                bg = Image.new("RGBA", (W, H), (0, 0, 0, 255))
+                bg.paste(frame_img, (tx, ty))
+                frame_img = bg
 
             return np.array(frame_img.convert("RGB"))
 
@@ -165,6 +202,28 @@ class VideoRenderer:
         final.close()
 
         return output_path
+
+    def _preprocess_image(self, image_path: str, category: str, output_path: str) -> str:
+        """rembg 배경 제거 + 그라디언트 배경 합성 (rembg 없으면 원본 반환)"""
+        try:
+            from src.step0_preprocess import remove_background, compose_on_color_bg
+
+            out_dir = Path(output_path).parent / "preprocess"
+            out_dir.mkdir(parents=True, exist_ok=True)
+
+            nobg_path = str(out_dir / "nobg.png")
+            nobg_path, removed = remove_background(image_path, nobg_path)
+
+            if removed:
+                composed_path = str(out_dir / "composed.png")
+                result = compose_on_color_bg(nobg_path, category, composed_path)
+                print(f"    [배경] 카테고리 배경 합성 완료 ({category})")
+                return result
+
+        except Exception as e:
+            print(f"    [배경] 전처리 건너뜀: {e}")
+
+        return image_path
 
     def _create_lyric_overlays(
         self, lyrics_lines: list[dict], total_duration: float

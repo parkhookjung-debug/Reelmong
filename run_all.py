@@ -63,7 +63,7 @@ def main():
     print()
     print("=" * 50)
     print("  맛노래 - 음식이 노래하는 숏폼 영상 생성기")
-    print("  (BLIP + Ollama + Edge TTS + MoviePy)")
+    print("  (BLIP + Ollama + Edge TTS + MusicGen + MoviePy)")
     print("  모든 모델 무료 로컬 실행")
     print("=" * 50)
     print()
@@ -96,6 +96,22 @@ def main():
     print(f"\n[v] 선택된 이미지: {Path(image_path).name}")
     print()
 
+    # ─── STEP 0: 배경 제거 ────────────────────────────
+    print("=" * 40)
+    print("  STEP 0: 배경 제거 (rembg)")
+    print("=" * 40)
+
+    from src.step0_preprocess import remove_background
+
+    nobg_path, bg_removed = remove_background(image_path)
+    if bg_removed:
+        print(f"[v] STEP 0 완료! 배경 제거된 이미지: {Path(nobg_path).name}")
+    else:
+        print("[!] STEP 0 생략 (rembg 미설치) - 원본 이미지 사용")
+    # 이미지 경로 업데이트 (배경 제거 성공 시 사용)
+    preprocessed_image_path = nobg_path if bg_removed else image_path
+    print()
+
     # ─── STEP 1: 음식 분석 ────────────────────────────
     print("=" * 40)
     print("  STEP 1: 음식 이미지 분석")
@@ -103,7 +119,7 @@ def main():
 
     from src.step1_analyze import FoodAnalyzer
     analyzer = FoodAnalyzer()
-    analysis = analyzer.analyze(image_path)
+    analysis = analyzer.analyze(preprocessed_image_path)
 
     print(f"\n    음식: {analysis.food_name}")
     print(f"    카테고리: {analysis.category}")
@@ -133,33 +149,48 @@ def main():
     print(f"\n[v] STEP 2 완료!")
     print()
 
-    # ─── STEP 3: 음성 합성 ────────────────────────────
+    # ─── STEP 3: 보컬 합성 (Bark 우선 → Edge TTS fallback) ──
     print("=" * 40)
-    print("  STEP 3: 음성 합성 (Edge TTS)")
+    print("  STEP 3: 보컬 합성")
     print("=" * 40)
 
-    from src.step3_voice import VoiceGenerator
-    singer = VoiceGenerator()
+    from src.step3_voice import is_bark_available
 
     voice_dir = str(OUTPUT_DIR / "voice")
-    voice_result = singer.generate_full_song(
-        lyrics=lyrics_data["lyrics"],
-        output_dir=voice_dir,
-    )
 
-    print(f"\n[v] STEP 3 완료!")
+    if is_bark_available():
+        print("  [Bark] 노래 보컬 생성 (♪ 모드)")
+        print("  [!] CPU 환경: 줄당 수분 소요될 수 있습니다.")
+        from src.step3_voice import BarkVocalGenerator
+        singer = BarkVocalGenerator(emotion=analysis.emotion)
+        voice_result = singer.generate_full_song(
+            lyrics=lyrics_data["lyrics"],
+            output_dir=voice_dir,
+        )
+        print(f"\n[v] STEP 3 완료! (Bark 보컬)")
+    else:
+        print("  [Edge TTS] Bark 미설치 → Edge TTS fallback")
+        print("  → Bark 설치: pip install git+https://github.com/suno-ai/bark.git")
+        from src.step3_voice import VoiceGenerator
+        singer = VoiceGenerator()
+        voice_result = singer.generate_full_song(
+            lyrics=lyrics_data["lyrics"],
+            output_dir=voice_dir,
+        )
+        print(f"\n[v] STEP 3 완료! (Edge TTS)")
+
     print(f"    총 길이: {voice_result['total_duration_ms'] / 1000:.1f}초")
-    print(f"    음성 파일: {voice_result['full_audio_path']}")
+    print(f"    엔진: {voice_result.get('engine', 'edge-tts')}")
     print()
 
-    # ─── STEP 3.5: 멜로디 생성 + 믹싱 ──────────────────
+    # ─── STEP 3.5: 멜로디 생성 (MusicGen) + 믹싱 ───────
     print("=" * 40)
-    print("  STEP 3.5: 멜로디 생성 (MusicGen)")
+    print("  STEP 3.5: 반주 생성 (MusicGen) + 믹싱")
     print("=" * 40)
 
     from src.step3_voice import is_musicgen_available, AudioMixer
 
-    final_audio_path = voice_result["full_audio_path"]  # 기본값: TTS만
+    final_audio_path = voice_result["full_audio_path"]  # 기본값: 보컬만
 
     if is_musicgen_available():
         try:
@@ -175,8 +206,7 @@ def main():
                 output_path=melody_path,
             )
 
-            # TTS + 멜로디 믹싱
-            print("\n[*] TTS + 멜로디 믹싱 중...")
+            print("\n[*] 보컬 + 반주 믹싱 중...")
             mixer = AudioMixer()
             final_audio_path = str(OUTPUT_DIR / "voice" / "final_mixed.mp3")
 
@@ -187,16 +217,16 @@ def main():
                 voice_lines=voice_result["lines"],
             )
 
-            print(f"[v] 멜로디 + 음성 믹싱 완료!")
+            print(f"[v] 보컬 + 반주 믹싱 완료!")
             print(f"    최종 오디오: {Path(final_audio_path).name}")
 
         except Exception as e:
-            print(f"[!] 멜로디 생성 실패: {e}")
-            print("    → TTS 음성만으로 진행합니다.")
+            print(f"[!] 반주 생성 실패: {e}")
+            print("    → 보컬만으로 진행합니다.")
             final_audio_path = voice_result["full_audio_path"]
     else:
-        print("[!] MusicGen 미설치 - TTS 음성만으로 진행합니다.")
-        print("    → 멜로디 추가하려면: pip install transformers torch")
+        print("[!] MusicGen 미설치 - 보컬만으로 진행합니다.")
+        print("    → 반주 추가하려면: pip install transformers torch")
         print("    → MusicGen-small 모델이 자동 다운로드됩니다 (~300MB)")
 
     print()
@@ -215,11 +245,12 @@ def main():
 
     output_video = str(OUTPUT_DIR / "singing_food.mp4")
     result_path = renderer.render(
-        image_path=image_path,
+        image_path=preprocessed_image_path,
         audio_path=final_audio_path,
         lyrics_lines=voice_result["lines"],
         title=lyrics_data["title"],
         output_path=output_video,
+        food_category=analysis.category,
     )
 
     if result_path and Path(result_path).exists():

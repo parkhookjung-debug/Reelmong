@@ -8,3 +8,4 @@ data/images/*
 !data/images/.gitkeep
 !data/bgm/**/.gitkeep
 .venv/
+.vscode/

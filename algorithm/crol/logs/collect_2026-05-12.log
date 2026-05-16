@@ -1,0 +1,29 @@
+2026-05-12 09:32:56 [INFO] ============================================================
+2026-05-12 09:32:56 [INFO] [START] PID=21344  python=C:\Python314\python.exe
+2026-05-12 09:32:56 [INFO]         cwd=C:\Users\parkh\통합\VScode\맛노래\reelmong-test\crol  log=C:\Users\parkh\통합\VScode\맛노래\reelmong-test\crol\logs\collect_2026-05-12.log
+2026-05-12 09:32:59 [ERROR] 네트워크 연결 없음 → 종료 (다음 로그온 때 재시도)
+2026-05-12 15:30:01 [INFO] ============================================================
+2026-05-12 15:30:01 [INFO] [START] PID=25396  python=C:\Python314\python.exe
+2026-05-12 15:30:01 [INFO]         cwd=C:\Users\parkh\통합\VScode\맛노래\reelmong-test\crol  log=C:\Users\parkh\통합\VScode\맛노래\reelmong-test\crol\logs\collect_2026-05-12.log
+2026-05-12 15:30:04 [ERROR] 네트워크 연결 없음 → 종료 (다음 로그온 때 재시도)
+2026-05-12 16:18:59 [INFO] ============================================================
+2026-05-12 16:18:59 [INFO] [START] PID=8020  python=C:\Python314\python.exe
+2026-05-12 16:18:59 [INFO]         cwd=c:\Users\parkh\통합\VScode\맛노래\reelmong-test\crol  log=c:\Users\parkh\통합\VScode\맛노래\reelmong-test\crol\logs\collect_2026-05-12.log
+2026-05-12 16:18:59 [ERROR] 네트워크 연결 없음 → 종료 (다음 로그온 때 재시도)
+2026-05-12 16:58:01 [INFO] ============================================================
+2026-05-12 16:58:01 [INFO] [START] PID=16908  python=C:\Python314\python.exe
+2026-05-12 16:58:01 [INFO]         cwd=c:\Users\parkh\통합\VScode\맛노래\reelmong-test\crol  log=c:\Users\parkh\통합\VScode\맛노래\reelmong-test\crol\logs\collect_2026-05-12.log
+2026-05-12 16:58:01 [ERROR] 네트워크 연결 없음 → 종료 (다음 로그온 때 재시도)
+2026-05-12 17:55:45 [INFO] ============================================================
+2026-05-12 17:55:45 [INFO] [START] PID=15064  python=C:\Python314\python.exe
+2026-05-12 17:55:45 [INFO]         cwd=c:\Users\parkh\통합\VScode\맛노래\reelmong-test\crol  log=c:\Users\parkh\통합\VScode\맛노래\reelmong-test\crol\logs\collect_2026-05-12.log
+2026-05-12 17:55:48 [INFO] [STEP] DB 초기화 시작
+2026-05-12 17:55:48 [INFO] [STEP] DB 초기화 완료 (0.0s)
+2026-05-12 17:55:48 [INFO] [STEP] 트렌드 키워드 갱신 시작
+2026-05-12 17:55:48 [INFO] [STEP] 트렌드 키워드 갱신 완료 (0.0s)
+2026-05-12 17:55:48 [INFO] [STEP] YouTube 수집 시작
+2026-05-12 17:56:31 [INFO] [STEP] YouTube 수집 완료 (42.7s)
+2026-05-12 17:56:31 [INFO] [STEP] 일일 분석 시작
+2026-05-12 17:56:31 [INFO] [STEP] 일일 분석 완료 (0.0s)
+2026-05-12 17:56:31 [INFO] [END] 성공 단계 3/4
+2026-05-12 17:56:31 [INFO] [BYE] ========================================================

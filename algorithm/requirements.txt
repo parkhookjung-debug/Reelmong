@@ -1,0 +1,27 @@
+# 릴몽 - AI 기반 F&B 매장 홍보 숏폼 자동 생성 시스템
+# OpenRouter API 기반 (Gemini Vision + LLM + TTS)
+
+# OpenRouter / OpenAI SDK
+openai>=1.0.0
+python-dotenv>=1.0.0
+
+# Step 1: 프레임 이미지 처리
+Pillow>=10.0.0
+
+# Step 1+2: HTTP 요청
+requests>=2.31.0
+
+# Step 3: Audio (BGM 믹싱)
+pydub>=0.25.1
+
+# Step 4: Video Rendering
+moviepy>=2.0.0
+numpy>=1.24.0
+
+# Web Framework
+fastapi>=0.100.0
+uvicorn>=0.23.0
+python-multipart>=0.0.6
+
+# Utilities
+aiofiles>=23.0.0

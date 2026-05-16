@@ -1,0 +1,2804 @@
+================================================================================
+  릴몽 - AI 기반 F&B 매장 홍보 숏폼 자동 생성 파이프라인
+  전체 코드 & 설정 정리본
+================================================================================
+
+[목차]
+  1. 프로젝트 개요
+  2. 사전 준비 (설치)
+  3. 폴더 구조
+  4. 설정 파일
+  5. STEP 1: Vision 이미지 분석 (BLIP + Ollama)
+  6. STEP 2: 스크립트/스토리보드 생성
+  7. STEP 3: 오디오 합성 (TTS + BGM)
+  8. STEP 4: 비디오 렌더링
+  9. STEP 5: 품질 평가
+  10. 실행 방법 요약
+
+================================================================================
+1. 프로젝트 개요
+================================================================================
+
+F&B 매장 이미지를 넣으면 인스타 릴스/유튜브 쇼츠용 30초 홍보 영상을
+자동으로 생성하는 파이프라인입니다.
+
+모든 AI 모델 무료 로컬 실행 (API 키 불필요):
+  - BLIP: 이미지 캡셔닝 (HuggingFace)
+  - Ollama + Gemma3:4b: 한국어 LLM (로컬)
+  - Edge TTS: 한국어 음성 합성 (무료)
+  - MoviePy: 비디오 렌더링
+  - pydub: 오디오 믹싱
+
+파이프라인 흐름:
+  이미지 → [STEP1 분석] → [STEP2 대본] → [STEP3 오디오] → [STEP4 영상] → [STEP5 평가]
+
+
+================================================================================
+2. 사전 준비 (설치)
+================================================================================
+
+[필수 소프트웨어]
+  1. Python 3.10+
+  2. Ollama (https://ollama.com)
+  3. FFmpeg (https://ffmpeg.org) - pydub, moviepy에 필요
+
+[설치 순서]
+  # 1) 프로젝트 클론
+  git clone https://github.com/parkhookjung-debug/Reelmong.git
+  cd Reelmong
+
+  # 2) 가상환경 생성
+  python -m venv .venv
+  .venv\Scripts\activate  (Windows)
+  source .venv/bin/activate  (Mac/Linux)
+
+  # 3) 패키지 설치
+  pip install -r requirements.txt
+  pip install edge-tts
+
+  # 4) Ollama 모델 설치
+  ollama pull gemma3:4b
+
+  # 5) Ollama 서버 실행
+  ollama serve
+
+[requirements.txt 내용]
+  # Step 1: Vision (BLIP 이미지 캡셔닝)
+  transformers>=4.36.0
+  torch>=2.0.0
+  Pillow>=10.0.0
+  python-dotenv>=1.0.0
+
+  # Step 1+2: LLM (Ollama 로컬)
+  requests>=2.31.0
+
+  # Step 3: Audio (TTS + BGM)
+  pydub>=0.25.1
+
+  # Step 4: Video Rendering
+  moviepy>=2.0.0
+  numpy>=1.24.0
+
+  # Web Framework
+  fastapi>=0.100.0
+  uvicorn>=0.23.0
+  python-multipart>=0.0.6
+
+  # Utilities
+  aiofiles>=23.0.0
+
+[.env.example]
+  # API 키 불필요! 모든 모델 무료 로컬 실행
+  # Ollama 설정 (기본값 사용 시 수정 불필요)
+  OLLAMA_BASE_URL=http://localhost:11434
+  OLLAMA_MODEL=gemma3:4b
+
+
+================================================================================
+3. 폴더 구조
+================================================================================
+
+  릴몽/
+  ├── config/
+  │   ├── __init__.py
+  │   └── settings.py              # 전역 설정 (경로, 모델, 영상 규격)
+  ├── src/
+  │   ├── __init__.py
+  │   ├── step1_vision/
+  │   │   ├── __init__.py
+  │   │   ├── analyzer.py          # BLIP + Ollama 이미지 분석
+  │   │   └── models.py            # SceneDescription, StoreAnalysis
+  │   ├── step2_script/
+  │   │   ├── __init__.py
+  │   │   ├── generator.py         # 스토리보드 생성 (Ollama LLM)
+  │   │   └── models.py            # SceneScript, Storyboard
+  │   ├── step3_audio/
+  │   │   ├── __init__.py
+  │   │   ├── tts.py               # Edge TTS 한국어 음성 합성
+  │   │   ├── bgm.py               # BGM 자동 매칭
+  │   │   └── mixer.py             # TTS + BGM 믹싱
+  │   ├── step4_video/
+  │   │   ├── __init__.py
+  │   │   ├── renderer.py          # 영상 렌더링 (MoviePy 2.x)
+  │   │   └── effects.py           # 영상 효과 (Ken Burns, 줌 등)
+  │   └── step5_eval/
+  │       ├── __init__.py
+  │       └── evaluator.py         # 품질 평가 (S~D 등급)
+  ├── data/
+  │   ├── images/                  # 매장 이미지 넣는 폴더
+  │   ├── bgm/                     # BGM 폴더 (mood별 하위 폴더)
+  │   │   ├── trendy/
+  │   │   ├── warm/
+  │   │   ├── calm/
+  │   │   ├── energetic/
+  │   │   └── elegant/
+  │   └── output/                  # 결과물 출력 폴더
+  ├── run_step1.py                 # STEP 1 실행
+  ├── run_step2.py                 # STEP 2 실행
+  ├── run_step3.py                 # STEP 3 실행
+  ├── run_step4.py                 # STEP 4 실행
+  ├── run_step5.py                 # STEP 5 실행
+  ├── requirements.txt
+  ├── .env.example
+  └── .gitignore
+
+
+================================================================================
+4. 설정 파일 - config/settings.py
+================================================================================
+
+"""릴몽 프로젝트 설정"""
+import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# 프로젝트 루트 경로
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+# 데이터 경로
+DATA_DIR = BASE_DIR / "data"
+IMAGES_DIR = DATA_DIR / "images"
+OUTPUT_DIR = DATA_DIR / "output"
+
+# Vision 설정 (BLIP - 무료 로컬 모델)
+BLIP_MODEL = "Salesforce/blip-image-captioning-large"
+MAX_IMAGES = 10
+SUPPORTED_FORMATS = {".jpg", ".jpeg", ".png", ".webp"}
+
+# LLM 설정 (Ollama - 무료 로컬)
+OLLAMA_BASE_URL = "http://localhost:11434"
+OLLAMA_MODEL = "gemma3:4b"  # 가벼운 모델, 한국어 지원
+
+# 영상 설정
+VIDEO_WIDTH = 1080
+VIDEO_HEIGHT = 1920  # 9:16 비율
+VIDEO_DURATION_MIN = 15  # 초
+VIDEO_DURATION_MAX = 30  # 초
+VIDEO_FPS = 30
+
+# 업종 카테고리
+CATEGORIES = [
+    "한식", "카페", "치킨", "피자", "분식",
+    "중식", "일식", "양식", "베이커리", "기타"
+]
+
+
+================================================================================
+5. STEP 1: Vision 이미지 분석
+================================================================================
+
+--- src/step1_vision/models.py ---
+
+"""STEP 1 데이터 모델 - Vision 분석 결과 구조화"""
+from dataclasses import dataclass, field, asdict
+import json
+
+
+@dataclass
+class SceneDescription:
+    """개별 이미지 분석 결과"""
+    image_path: str
+    scene_type: str          # "food", "interior", "exterior", "menu", "other"
+    description_ko: str      # 한국어 장면 묘사
+    description_en: str      # BLIP 영어 원문 캡션
+    mood: str                # "warm", "cozy", "modern", "traditional", "vibrant"
+    key_elements: list[str] = field(default_factory=list)
+    color_tone: str = ""
+    suggested_duration: float = 3.0
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+@dataclass
+class StoreAnalysis:
+    """매장 전체 분석 결과 (STEP 2로 전달되는 JSON)"""
+    store_name: str
+    store_intro: str
+    category: str
+    scenes: list[SceneDescription] = field(default_factory=list)
+    overall_mood: str = ""
+    highlight_points: list[str] = field(default_factory=list)
+    target_audience: str = ""
+
+    def to_dict(self) -> dict:
+        return {
+            "store_name": self.store_name,
+            "store_intro": self.store_intro,
+            "category": self.category,
+            "scenes": [s.to_dict() for s in self.scenes],
+            "overall_mood": self.overall_mood,
+            "highlight_points": self.highlight_points,
+            "target_audience": self.target_audience,
+        }
+
+    def to_json(self, indent: int = 2) -> str:
+        return json.dumps(self.to_dict(), ensure_ascii=False, indent=indent)
+
+    def save(self, path: str) -> None:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(self.to_json())
+
+
+--- src/step1_vision/analyzer.py ---
+
+"""STEP 1: Vision 입력 해석 모듈 (무료 로컬 버전)
+
+BLIP (이미지 캡셔닝) + Ollama (로컬 LLM 한국어 변환/분석)
+- BLIP: 이미지 -> 영어 캡션 생성 (HuggingFace, 무료)
+- Ollama: 영어 캡션 -> 한국어 장면 묘사 + 구조화 분석 (로컬, 무료)
+"""
+import json
+from pathlib import Path
+
+import requests
+from PIL import Image
+from transformers import BlipProcessor, BlipForConditionalGeneration
+
+from config.settings import (
+    BLIP_MODEL,
+    MAX_IMAGES,
+    SUPPORTED_FORMATS,
+    CATEGORIES,
+    OLLAMA_BASE_URL,
+    OLLAMA_MODEL,
+)
+from .models import SceneDescription, StoreAnalysis
+
+
+class ImageAnalyzer:
+    """F&B 매장 이미지를 분석하여 숏폼 스크립트용 장면 묘사를 생성
+
+    BLIP (무료) -> 이미지 캡셔닝
+    Ollama (무료) -> 한국어 변환 + 장면 분석 구조화
+    """
+
+    def __init__(self):
+        print("[릴몽] BLIP 모델 로딩 중...")
+        self.processor = BlipProcessor.from_pretrained(BLIP_MODEL)
+        self.blip_model = BlipForConditionalGeneration.from_pretrained(BLIP_MODEL)
+        print("[릴몽] BLIP 모델 로딩 완료!")
+
+    def _caption_image(self, image_path: str) -> str:
+        """BLIP으로 이미지 캡션 생성 (영어)"""
+        image = Image.open(image_path).convert("RGB")
+        inputs = self.processor(
+            image,
+            text="a photograph of a restaurant",
+            return_tensors="pt",
+        )
+        output = self.blip_model.generate(
+            **inputs,
+            max_new_tokens=80,
+            num_beams=5,
+            early_stopping=True,
+        )
+        caption = self.processor.decode(output[0], skip_special_tokens=True)
+        return caption
+
+    def _ollama_generate(self, prompt: str) -> str:
+        """Ollama 로컬 LLM 호출"""
+        try:
+            response = requests.post(
+                f"{OLLAMA_BASE_URL}/api/generate",
+                json={
+                    "model": OLLAMA_MODEL,
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {"temperature": 0.3},
+                },
+                timeout=120,
+            )
+            response.raise_for_status()
+            return response.json()["response"]
+        except requests.ConnectionError:
+            print("[!] Ollama 서버에 연결할 수 없습니다.")
+            print("    -> 'ollama serve' 명령으로 서버를 먼저 실행해주세요.")
+            print(f"    -> 모델 설치: 'ollama pull {OLLAMA_MODEL}'")
+            raise
+        except requests.Timeout:
+            print("[!] Ollama 응답 시간 초과 (120초)")
+            raise
+
+    def _parse_json_from_response(self, text: str) -> dict:
+        """LLM 응답에서 JSON 추출 (마크다운 코드블록 포함 대응)"""
+        text = text.strip()
+        if "```" in text:
+            start = text.find("```")
+            end = text.rfind("```")
+            if start != end:
+                block = text[start:end + 3]
+                lines = block.split("\n")
+                lines = lines[1:-1]
+                text = "\n".join(lines)
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            brace_start = text.find("{")
+            brace_end = text.rfind("}")
+            if brace_start != -1 and brace_end != -1:
+                try:
+                    return json.loads(text[brace_start:brace_end + 1])
+                except json.JSONDecodeError:
+                    pass
+            return {}
+
+    def _analyze_caption_with_ollama(self, caption: str, image_path: str) -> dict:
+        """Ollama로 BLIP 캡션을 한국어 장면 분석으로 변환"""
+        prompt = f"""당신은 F&B 매장 홍보 숏폼 영상 제작을 위한 이미지 분석 전문가입니다.
+
+다음은 매장 관련 이미지의 영어 설명입니다:
+"{caption}"
+
+이 설명을 바탕으로 아래 JSON 형식으로 분석 결과를 작성해주세요.
+반드시 JSON만 출력하세요.
+
+{{
+  "scene_type": "food 또는 interior 또는 exterior 또는 menu 또는 other 중 하나",
+  "description_ko": "숏폼 나레이션에 활용할 수 있는 감성적인 한국어 장면 묘사 1~2문장",
+  "mood": "warm 또는 cozy 또는 modern 또는 traditional 또는 vibrant 또는 elegant 또는 casual 중 하나",
+  "key_elements": ["핵심 시각 요소1", "요소2", "요소3"],
+  "color_tone": "따뜻한 난색 또는 차가운 한색 또는 밝고 경쾌한 또는 어둡고 고급스러운 또는 자연스러운 중 하나",
+  "suggested_duration": 3.0
+}}"""
+
+        response_text = self._ollama_generate(prompt)
+        result = self._parse_json_from_response(response_text)
+
+        if not result:
+            print(f"[!] JSON 파싱 실패, 기본값 사용 (원문: {caption})")
+            return {
+                "scene_type": "other",
+                "description_ko": f"매장의 모습을 담은 사진입니다. ({caption})",
+                "mood": "warm",
+                "key_elements": [],
+                "color_tone": "자연스러운",
+                "suggested_duration": 3.0,
+            }
+
+        return result
+
+    def analyze_single_image(self, image_path: str) -> SceneDescription:
+        """단일 이미지 분석: BLIP 캡셔닝 -> Ollama 한국어 변환"""
+        ext = Path(image_path).suffix.lower()
+        if ext not in SUPPORTED_FORMATS:
+            raise ValueError(f"지원하지 않는 이미지 형식: {ext}")
+
+        caption_en = self._caption_image(image_path)
+        print(f"    BLIP 캡션: {caption_en}")
+
+        analysis = self._analyze_caption_with_ollama(caption_en, image_path)
+
+        return SceneDescription(
+            image_path=image_path,
+            scene_type=analysis.get("scene_type", "other"),
+            description_ko=analysis.get("description_ko", ""),
+            description_en=caption_en,
+            mood=analysis.get("mood", "warm"),
+            key_elements=analysis.get("key_elements", []),
+            color_tone=analysis.get("color_tone", ""),
+            suggested_duration=analysis.get("suggested_duration", 3.0),
+        )
+
+    def analyze_store(
+        self,
+        image_paths: list[str],
+        store_name: str,
+        store_intro: str,
+        category: str = "",
+    ) -> StoreAnalysis:
+        """매장 전체 분석: 여러 이미지 + 소개 텍스트 -> StoreAnalysis JSON"""
+        if len(image_paths) > MAX_IMAGES:
+            image_paths = image_paths[:MAX_IMAGES]
+            print(f"[릴몽] 이미지가 {MAX_IMAGES}장을 초과하여 앞 {MAX_IMAGES}장만 사용합니다.")
+
+        scenes: list[SceneDescription] = []
+        for i, path in enumerate(image_paths, 1):
+            print(f"[릴몽] 이미지 분석 중 ({i}/{len(image_paths)}): {Path(path).name}")
+            scene = self.analyze_single_image(path)
+            scenes.append(scene)
+
+        summary = self._summarize_store(scenes, store_name, store_intro, category)
+
+        return StoreAnalysis(
+            store_name=store_name,
+            store_intro=store_intro,
+            category=summary.get("category", category or "기타"),
+            scenes=scenes,
+            overall_mood=summary.get("overall_mood", ""),
+            highlight_points=summary.get("highlight_points", []),
+            target_audience=summary.get("target_audience", ""),
+        )
+
+    def _summarize_store(
+        self,
+        scenes: list[SceneDescription],
+        store_name: str,
+        store_intro: str,
+        category: str,
+    ) -> dict:
+        """개별 장면 분석 결과를 종합하여 매장 전체 요약 생성"""
+        scenes_text = "\n".join(
+            f"- [{s.scene_type}] {s.description_ko} (분위기: {s.mood})"
+            for s in scenes
+        )
+
+        categories_str = ", ".join(CATEGORIES)
+
+        prompt = f"""당신은 F&B 매장 마케팅 분석 전문가입니다.
+
+다음은 '{store_name}' 매장의 이미지 분석 결과입니다.
+
+매장 소개: {store_intro}
+{f'업종: {category}' if category else '업종: 아래 분석을 보고 자동 판별 필요'}
+
+개별 장면 분석:
+{scenes_text}
+
+위 정보를 바탕으로 매장 전체를 종합 분석하여 아래 JSON 형식으로 응답하세요.
+반드시 JSON만 출력하세요.
+
+{{
+  "category": "{categories_str} 중 하나",
+  "overall_mood": "매장 전체 분위기를 한 문장으로 요약",
+  "highlight_points": ["숏폼에서 강조할 홍보 포인트1", "포인트2", "포인트3"],
+  "target_audience": "추천 타겟 고객층 설명 1문장"
+}}"""
+
+        response_text = self._ollama_generate(prompt)
+        result = self._parse_json_from_response(response_text)
+
+        if not result:
+            return {
+                "category": category or "기타",
+                "overall_mood": "따뜻하고 편안한 분위기의 매장",
+                "highlight_points": ["맛있는 음식", "편안한 분위기", "합리적인 가격"],
+                "target_audience": "20~40대 직장인 및 가족 단위 고객",
+            }
+
+        return result
+
+
+--- src/step1_vision/__init__.py ---
+
+from .analyzer import ImageAnalyzer
+from .models import SceneDescription, StoreAnalysis
+
+__all__ = ["ImageAnalyzer", "SceneDescription", "StoreAnalysis"]
+
+
+--- run_step1.py ---
+
+"""STEP 1 실행 스크립트 - Vision 이미지 분석 (무료 로컬 버전)
+
+사전 준비:
+  1. pip install transformers torch Pillow python-dotenv requests
+  2. Ollama 설치 후 'ollama serve' 실행
+  3. 'ollama pull gemma3:4b' 로 모델 다운로드
+  4. data/images/ 폴더에 매장 이미지 넣기
+
+사용법:
+  python run_step1.py --images data/images/img1.jpg data/images/img2.jpg \
+                      --name "맛있는 식당" \
+                      --intro "강남역 근처 수제 파스타 전문점입니다"
+
+또는 대화형 모드:
+  python run_step1.py
+"""
+import sys
+import argparse
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent))
+
+from config.settings import IMAGES_DIR, OUTPUT_DIR
+from src.step1_vision import ImageAnalyzer
+
+
+def get_test_images() -> list[str]:
+    """data/images 폴더에서 이미지 파일 자동 탐색"""
+    images = []
+    if IMAGES_DIR.exists():
+        for ext in ("*.jpg", "*.jpeg", "*.png", "*.webp"):
+            images.extend(str(p) for p in IMAGES_DIR.glob(ext))
+    return sorted(images)
+
+
+def check_ollama():
+    """Ollama 서버 상태 확인"""
+    import requests
+    try:
+        r = requests.get("http://localhost:11434/api/tags", timeout=5)
+        r.raise_for_status()
+        models = [m["name"] for m in r.json().get("models", [])]
+        print(f"[v] Ollama 서버 연결 OK")
+        print(f"    설치된 모델: {', '.join(models) if models else '없음'}")
+        return True
+    except Exception:
+        print("[X] Ollama 서버에 연결할 수 없습니다!")
+        print("    1. Ollama 설치: https://ollama.com")
+        print("    2. 서버 실행: ollama serve")
+        print("    3. 모델 설치: ollama pull gemma3:4b")
+        return False
+
+
+def interactive_mode():
+    """대화형 모드"""
+    print("=" * 50)
+    print("  릴몽 STEP 1: Vision 이미지 분석")
+    print("  (BLIP + Ollama 무료 로컬 버전)")
+    print("=" * 50)
+    print()
+
+    if not check_ollama():
+        return
+
+    images = get_test_images()
+    if not images:
+        print(f"\n[!] data/images 폴더에 이미지가 없습니다.")
+        print(f"    -> {IMAGES_DIR} 에 매장 이미지를 넣어주세요.")
+        print(f"    지원 형식: jpg, jpeg, png, webp")
+        return
+
+    print(f"\n[v] 발견된 이미지 {len(images)}장:")
+    for i, img in enumerate(images, 1):
+        print(f"    {i}. {Path(img).name}")
+    print()
+
+    store_name = input("매장 이름: ").strip() or "테스트 매장"
+    store_intro = input("매장 소개 (1~3문장): ").strip() or "맛있는 음식을 제공하는 매장입니다"
+    category = input("업종 (빈칸=자동판별): ").strip()
+
+    print()
+    print("[*] 이미지 분석을 시작합니다...")
+    print("    (BLIP 모델 최초 로딩에 1~2분 소요될 수 있습니다)")
+    print()
+
+    analyzer = ImageAnalyzer()
+    result = analyzer.analyze_store(
+        image_paths=images,
+        store_name=store_name,
+        store_intro=store_intro,
+        category=category,
+    )
+
+    print()
+    print("=" * 50)
+    print("  분석 결과")
+    print("=" * 50)
+    print(result.to_json())
+
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    output_path = OUTPUT_DIR / "step1_result.json"
+    result.save(str(output_path))
+    print(f"\n[v] 결과 저장: {output_path}")
+    print("[v] STEP 1 완료! -> 이 JSON이 STEP 2 (스크립트 생성)의 입력이 됩니다.")
+
+
+def cli_mode(args):
+    """CLI 인자 모드"""
+    if not check_ollama():
+        return
+
+    analyzer = ImageAnalyzer()
+    result = analyzer.analyze_store(
+        image_paths=args.images,
+        store_name=args.name,
+        store_intro=args.intro,
+        category=args.category or "",
+    )
+
+    print(result.to_json())
+
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    output_path = OUTPUT_DIR / "step1_result.json"
+    result.save(str(output_path))
+    print(f"\n[v] 결과 저장: {output_path}")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="릴몽 STEP 1: Vision 이미지 분석")
+    parser.add_argument("--images", nargs="+", help="이미지 파일 경로들")
+    parser.add_argument("--name", default="테스트 매장", help="매장 이름")
+    parser.add_argument("--intro", default="맛있는 음식을 제공합니다", help="매장 소개")
+    parser.add_argument("--category", default="", help="업종 카테고리")
+
+    args = parser.parse_args()
+
+    if args.images:
+        cli_mode(args)
+    else:
+        interactive_mode()
+
+
+if __name__ == "__main__":
+    main()
+
+
+================================================================================
+6. STEP 2: 스크립트/스토리보드 생성
+================================================================================
+
+--- src/step2_script/models.py ---
+
+"""STEP 2 데이터 모델 - 스크립트/스토리보드 구조화"""
+from dataclasses import dataclass, field, asdict
+import json
+
+
+@dataclass
+class SceneScript:
+    """개별 장면 스크립트"""
+    scene_index: int             # 장면 순서 (1부터)
+    image_path: str              # 사용할 이미지 경로
+    narration: str               # 나레이션 텍스트 (TTS 입력)
+    subtitle: str                # 자막 텍스트 (화면 표시용)
+    duration: float              # 장면 지속 시간 (초)
+    start_time: float = 0.0     # 시작 시간 (초)
+    effect: str = "ken_burns"    # 영상 효과: ken_burns, zoom_in, zoom_out, fade, slide
+    transition: str = "crossfade"  # 전환 효과: crossfade, cut, fade_black
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+@dataclass
+class Storyboard:
+    """전체 스토리보드 (STEP 3, 4로 전달)"""
+    store_name: str
+    category: str
+    total_duration: float                        # 전체 영상 길이 (초)
+    opening_hook: str                            # 오프닝 후크 문구 (첫 3초)
+    scenes: list[SceneScript] = field(default_factory=list)
+    closing_cta: str = ""                        # 클로징 CTA (마지막 장면)
+    bgm_mood: str = ""                           # BGM 분위기 키워드
+    script_full_text: str = ""                   # 전체 나레이션 텍스트 (TTS용)
+
+    def to_dict(self) -> dict:
+        return {
+            "store_name": self.store_name,
+            "category": self.category,
+            "total_duration": self.total_duration,
+            "opening_hook": self.opening_hook,
+            "scenes": [s.to_dict() for s in self.scenes],
+            "closing_cta": self.closing_cta,
+            "bgm_mood": self.bgm_mood,
+            "script_full_text": self.script_full_text,
+        }
+
+    def to_json(self, indent: int = 2) -> str:
+        return json.dumps(self.to_dict(), ensure_ascii=False, indent=indent)
+
+    def save(self, path: str) -> None:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(self.to_json())
+
+    def to_srt(self) -> str:
+        """SRT 자막 파일 형식으로 변환"""
+        lines = []
+        for scene in self.scenes:
+            start = _seconds_to_srt_time(scene.start_time)
+            end = _seconds_to_srt_time(scene.start_time + scene.duration)
+            lines.append(f"{scene.scene_index}")
+            lines.append(f"{start} --> {end}")
+            lines.append(scene.subtitle)
+            lines.append("")
+        return "\n".join(lines)
+
+    def save_srt(self, path: str) -> None:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(self.to_srt())
+
+
+def _seconds_to_srt_time(seconds: float) -> str:
+    """초 -> SRT 시간 형식 (HH:MM:SS,mmm)"""
+    h = int(seconds // 3600)
+    m = int((seconds % 3600) // 60)
+    s = int(seconds % 60)
+    ms = int((seconds % 1) * 1000)
+    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+
+--- src/step2_script/generator.py ---
+
+"""STEP 2: 스크립트 생성 모듈
+
+STEP 1 결과 (StoreAnalysis JSON) -> Ollama LLM -> 30초 릴스 스토리보드
+- 오프닝 후크 (첫 3초 - 시청자 이목 집중)
+- 장면별 나레이션 + 자막
+- 클로징 CTA (행동 유도)
+- BGM 분위기 결정
+"""
+import json
+from pathlib import Path
+
+import requests
+
+from config.settings import (
+    OLLAMA_BASE_URL,
+    OLLAMA_MODEL,
+    VIDEO_DURATION_MIN,
+    VIDEO_DURATION_MAX,
+    CATEGORIES,
+)
+from src.step1_vision.models import StoreAnalysis
+from .models import SceneScript, Storyboard
+
+
+class ScriptGenerator:
+    """STEP 1 분석 결과를 받아 숏폼 스토리보드를 생성"""
+
+    def __init__(self):
+        self.model = OLLAMA_MODEL
+        self.target_duration = 25  # 목표 영상 길이 (초)
+
+    def _ollama_generate(self, prompt: str) -> str:
+        """Ollama 로컬 LLM 호출"""
+        try:
+            response = requests.post(
+                f"{OLLAMA_BASE_URL}/api/generate",
+                json={
+                    "model": self.model,
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {
+                        "temperature": 0.7,
+                        "num_predict": 2048,
+                    },
+                },
+                timeout=180,
+            )
+            response.raise_for_status()
+            return response.json()["response"]
+        except requests.ConnectionError:
+            print("[!] Ollama 서버에 연결할 수 없습니다.")
+            print("    -> 'ollama serve' 로 서버를 실행해주세요.")
+            raise
+
+    def _parse_json_from_response(self, text: str) -> dict:
+        """LLM 응답에서 JSON 추출"""
+        text = text.strip()
+        if "```" in text:
+            start = text.find("```")
+            end = text.rfind("```")
+            if start != end:
+                block = text[start:end + 3]
+                lines = block.split("\n")
+                lines = lines[1:-1]
+                text = "\n".join(lines)
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            brace_start = text.find("{")
+            brace_end = text.rfind("}")
+            if brace_start != -1 and brace_end != -1:
+                try:
+                    return json.loads(text[brace_start:brace_end + 1])
+                except json.JSONDecodeError:
+                    pass
+            return {}
+
+    def generate(self, analysis: StoreAnalysis) -> Storyboard:
+        """StoreAnalysis -> Storyboard 생성"""
+        num_scenes = len(analysis.scenes)
+        if num_scenes == 0:
+            raise ValueError("분석된 장면이 없습니다. STEP 1을 먼저 실행해주세요.")
+
+        print(f"[릴몽] 스크립트 생성 시작 ({num_scenes}개 장면)")
+        print("[릴몽] Ollama로 스토리보드 생성 중...")
+        storyboard_data = self._generate_storyboard(analysis)
+        storyboard = self._build_storyboard(storyboard_data, analysis)
+        print(f"[릴몽] 스크립트 생성 완료! (총 {storyboard.total_duration:.1f}초)")
+        return storyboard
+
+    def _generate_storyboard(self, analysis: StoreAnalysis) -> dict:
+        """Ollama로 스토리보드 JSON 생성"""
+        scenes_info = "\n".join(
+            f"  장면{i+1}: [{s.scene_type}] {s.description_ko} (분위기: {s.mood}, 이미지: {s.image_path})"
+            for i, s in enumerate(analysis.scenes)
+        )
+
+        num_scenes = len(analysis.scenes)
+        duration_per_scene = round(self.target_duration / num_scenes, 1)
+
+        prompt = f"""당신은 F&B 매장 홍보 숏폼 영상의 스크립트 작가입니다.
+인스타 릴스, 유튜브 쇼츠 스타일의 15~30초 홍보 영상 대본을 작성해주세요.
+
+## 매장 정보
+- 매장명: {analysis.store_name}
+- 업종: {analysis.category}
+- 소개: {analysis.store_intro}
+- 전체 분위기: {analysis.overall_mood}
+- 홍보 포인트: {', '.join(analysis.highlight_points)}
+- 타겟 고객: {analysis.target_audience}
+
+## 이미지 분석 결과 ({num_scenes}개 장면)
+{scenes_info}
+
+## 작성 규칙
+1. opening_hook: 첫 3초 안에 시청자를 잡는 강렬한 한 문장 (질문형 또는 감탄형)
+2. 각 장면의 narration: 자연스럽고 감성적인 나레이션 (TTS로 읽힘)
+3. 각 장면의 subtitle: 화면에 표시할 짧은 자막 (나레이션 요약, 10자 이내)
+4. closing_cta: 마지막 행동 유도 문구 (위치, 검색 키워드 등)
+5. bgm_mood: 배경음악 분위기 (energetic, calm, warm, trendy, elegant 중 하나)
+6. 장면당 약 {duration_per_scene}초, 전체 {self.target_duration}초 목표
+7. effect: 각 장면 효과 (ken_burns, zoom_in, zoom_out, fade, slide 중 하나)
+
+아래 JSON 형식으로만 응답하세요. 다른 텍스트 없이 JSON만 출력하세요.
+
+{{
+  "opening_hook": "첫 3초 후크 문구",
+  "bgm_mood": "warm",
+  "closing_cta": "마지막 CTA 문구",
+  "scenes": [
+    {{
+      "scene_index": 1,
+      "narration": "나레이션 텍스트",
+      "subtitle": "짧은 자막",
+      "duration": {duration_per_scene},
+      "effect": "ken_burns"
+    }}
+  ]
+}}"""
+
+        response_text = self._ollama_generate(prompt)
+        result = self._parse_json_from_response(response_text)
+
+        if not result or "scenes" not in result:
+            print("[!] LLM 스토리보드 생성 실패, 기본 템플릿 사용")
+            result = self._fallback_storyboard(analysis)
+
+        return result
+
+    def _fallback_storyboard(self, analysis: StoreAnalysis) -> dict:
+        """LLM 실패 시 규칙 기반 기본 스토리보드"""
+        num_scenes = len(analysis.scenes)
+        duration_per_scene = round(self.target_duration / num_scenes, 1)
+
+        scenes = []
+        for i, scene in enumerate(analysis.scenes):
+            if i == 0:
+                narration = f"{analysis.store_name}을 소개합니다. {analysis.store_intro}"
+                subtitle = analysis.store_name
+            elif scene.scene_type == "food":
+                narration = f"정성 가득한 메뉴를 만나보세요. {scene.description_ko}"
+                subtitle = "시그니처 메뉴"
+            elif scene.scene_type == "interior":
+                narration = f"편안한 공간에서 특별한 시간을 보내세요. {scene.description_ko}"
+                subtitle = "아늑한 공간"
+            else:
+                narration = scene.description_ko or "특별한 경험이 기다립니다."
+                subtitle = "특별한 경험"
+
+            scenes.append({
+                "scene_index": i + 1,
+                "narration": narration,
+                "subtitle": subtitle,
+                "duration": duration_per_scene,
+                "effect": "ken_burns",
+            })
+
+        return {
+            "opening_hook": f"이런 곳 찾고 있었죠? {analysis.store_name}!",
+            "bgm_mood": "warm",
+            "closing_cta": f"{analysis.store_name}, 지금 바로 검색해보세요!",
+            "scenes": scenes,
+        }
+
+    def _build_storyboard(self, data: dict, analysis: StoreAnalysis) -> Storyboard:
+        """JSON 데이터 -> Storyboard 객체 변환 + 타이밍 계산"""
+        scenes: list[SceneScript] = []
+        current_time = 0.0
+
+        raw_scenes = data.get("scenes", [])
+
+        for i, raw in enumerate(raw_scenes):
+            image_idx = min(i, len(analysis.scenes) - 1)
+            image_path = analysis.scenes[image_idx].image_path
+
+            duration = float(raw.get("duration", 4.0))
+            duration = max(2.0, min(8.0, duration))
+
+            scene = SceneScript(
+                scene_index=raw.get("scene_index", i + 1),
+                image_path=image_path,
+                narration=raw.get("narration", ""),
+                subtitle=raw.get("subtitle", ""),
+                duration=duration,
+                start_time=current_time,
+                effect=raw.get("effect", "ken_burns"),
+                transition=raw.get("transition", "crossfade"),
+            )
+            scenes.append(scene)
+            current_time += duration
+
+        opening = data.get("opening_hook", "")
+        closing = data.get("closing_cta", "")
+        narrations = [opening] + [s.narration for s in scenes] + [closing]
+        full_text = " ".join(n for n in narrations if n)
+
+        storyboard = Storyboard(
+            store_name=analysis.store_name,
+            category=analysis.category,
+            total_duration=current_time,
+            opening_hook=opening,
+            scenes=scenes,
+            closing_cta=closing,
+            bgm_mood=data.get("bgm_mood", "warm"),
+            script_full_text=full_text,
+        )
+
+        return storyboard
+
+    @staticmethod
+    def load_analysis(json_path: str) -> StoreAnalysis:
+        """STEP 1 결과 JSON 파일 로드"""
+        with open(json_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        from src.step1_vision.models import SceneDescription
+        scenes = [
+            SceneDescription(**s) for s in data.get("scenes", [])
+        ]
+
+        return StoreAnalysis(
+            store_name=data["store_name"],
+            store_intro=data["store_intro"],
+            category=data["category"],
+            scenes=scenes,
+            overall_mood=data.get("overall_mood", ""),
+            highlight_points=data.get("highlight_points", []),
+            target_audience=data.get("target_audience", ""),
+        )
+
+
+--- src/step2_script/__init__.py ---
+
+from .generator import ScriptGenerator
+from .models import SceneScript, Storyboard
+
+__all__ = ["ScriptGenerator", "SceneScript", "Storyboard"]
+
+
+--- run_step2.py ---
+
+"""STEP 2 실행 스크립트 - 스크립트/스토리보드 생성
+
+STEP 1 결과(step1_result.json)를 읽어서 30초 릴스 대본을 생성합니다.
+
+사용법:
+  python run_step2.py
+  python run_step2.py --input data/output/step1_result.json
+"""
+import sys
+import io
+import argparse
+from pathlib import Path
+
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+sys.path.insert(0, str(Path(__file__).parent))
+
+from config.settings import OUTPUT_DIR
+from src.step2_script import ScriptGenerator
+
+
+def main():
+    parser = argparse.ArgumentParser(description="릴몽 STEP 2: 스크립트 생성")
+    parser.add_argument(
+        "--input",
+        default=str(OUTPUT_DIR / "step1_result.json"),
+        help="STEP 1 결과 JSON 경로",
+    )
+    args = parser.parse_args()
+
+    input_path = Path(args.input)
+
+    print("=" * 50)
+    print("  릴몽 STEP 2: 스크립트/스토리보드 생성")
+    print("  (Ollama 로컬 LLM)")
+    print("=" * 50)
+    print()
+
+    if not input_path.exists():
+        print(f"[!] STEP 1 결과 파일을 찾을 수 없습니다: {input_path}")
+        print("    -> 먼저 'python run_step1.py'를 실행해주세요.")
+        return
+
+    print(f"[v] STEP 1 결과 로드: {input_path}")
+    generator = ScriptGenerator()
+    analysis = generator.load_analysis(str(input_path))
+
+    print(f"    매장명: {analysis.store_name}")
+    print(f"    업종: {analysis.category}")
+    print(f"    장면 수: {len(analysis.scenes)}개")
+    print()
+
+    storyboard = generator.generate(analysis)
+
+    print()
+    print("=" * 50)
+    print("  생성된 스토리보드")
+    print("=" * 50)
+    print()
+    print(f"  오프닝 후크: {storyboard.opening_hook}")
+    print(f"  총 길이: {storyboard.total_duration:.1f}초")
+    print(f"  BGM 분위기: {storyboard.bgm_mood}")
+    print()
+
+    for scene in storyboard.scenes:
+        print(f"  [{scene.scene_index}] {scene.start_time:.1f}s ~ {scene.start_time + scene.duration:.1f}s ({scene.duration:.1f}초)")
+        print(f"      나레이션: {scene.narration}")
+        print(f"      자막: {scene.subtitle}")
+        print(f"      효과: {scene.effect}")
+        print()
+
+    print(f"  클로징 CTA: {storyboard.closing_cta}")
+    print()
+
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    json_path = OUTPUT_DIR / "step2_storyboard.json"
+    storyboard.save(str(json_path))
+    print(f"[v] 스토리보드 저장: {json_path}")
+
+    srt_path = OUTPUT_DIR / "step2_subtitles.srt"
+    storyboard.save_srt(str(srt_path))
+    print(f"[v] 자막 저장: {srt_path}")
+
+    narration_path = OUTPUT_DIR / "step2_narration.txt"
+    with open(narration_path, "w", encoding="utf-8") as f:
+        f.write(storyboard.script_full_text)
+    print(f"[v] 나레이션 텍스트 저장: {narration_path}")
+
+    print()
+    print("[v] STEP 2 완료!")
+    print("    -> step2_storyboard.json  : STEP 3(오디오) + STEP 4(영상)의 입력")
+    print("    -> step2_subtitles.srt    : 영상 자막 파일")
+    print("    -> step2_narration.txt    : TTS 음성 합성용 텍스트")
+
+
+if __name__ == "__main__":
+    main()
+
+
+================================================================================
+7. STEP 3: 오디오 합성 (TTS + BGM)
+================================================================================
+
+--- src/step3_audio/tts.py ---
+
+"""TTS 모듈 - Edge TTS (무료 한국어 음성 합성)
+
+Microsoft Edge TTS를 사용하여 나레이션 텍스트를 한국어 음성으로 변환합니다.
+- 무료, API 키 불필요
+- 고품질 한국어 음성 지원
+- 다양한 음성 선택 가능
+"""
+import asyncio
+import re
+from pathlib import Path
+
+import edge_tts
+
+
+KOREAN_VOICES = {
+    "female_friendly": "ko-KR-SunHiNeural",
+    "male_friendly": "ko-KR-InJoonNeural",
+    "female_calm": "ko-KR-SunHiNeural",
+    "male_calm": "ko-KR-InJoonNeural",
+}
+
+CATEGORY_VOICE_MAP = {
+    "한식": "female_friendly",
+    "카페": "female_friendly",
+    "치킨": "male_friendly",
+    "피자": "male_friendly",
+    "분식": "female_friendly",
+    "중식": "male_friendly",
+    "일식": "female_calm",
+    "양식": "female_friendly",
+    "베이커리": "female_friendly",
+    "마라탕": "female_friendly",
+    "기타": "female_friendly",
+}
+
+
+class TTSGenerator:
+    """Edge TTS를 사용한 한국어 음성 합성"""
+
+    def __init__(self, voice_key: str = "female_friendly"):
+        self.voice = KOREAN_VOICES.get(voice_key, KOREAN_VOICES["female_friendly"])
+        self.rate = "+0%"
+        self.volume = "+0%"
+
+    @classmethod
+    def for_category(cls, category: str) -> "TTSGenerator":
+        """업종에 맞는 음성으로 TTS 생성기 반환"""
+        voice_key = CATEGORY_VOICE_MAP.get(category, "female_friendly")
+        return cls(voice_key=voice_key)
+
+    def set_speed(self, rate: str):
+        """발화 속도 설정 (예: '+10%', '-5%')"""
+        self.rate = rate
+
+    def _clean_text(self, text: str) -> str:
+        """TTS에 불필요한 이모지/특수문자 제거"""
+        text = re.sub(
+            r"[^\uAC00-\uD7AF\u3130-\u318F\uA960-\uA97F"
+            r"\u0020-\u007E"
+            r"]+",
+            " ",
+            text,
+        )
+        text = re.sub(r"\s+", " ", text).strip()
+        return text
+
+    async def _generate_async(self, text: str, output_path: str) -> str:
+        """비동기 TTS 생성"""
+        clean_text = self._clean_text(text)
+        if not clean_text:
+            raise ValueError("TTS 변환할 텍스트가 비어있습니다.")
+
+        communicate = edge_tts.Communicate(
+            text=clean_text,
+            voice=self.voice,
+            rate=self.rate,
+            volume=self.volume,
+        )
+        await communicate.save(output_path)
+        return output_path
+
+    def generate(self, text: str, output_path: str) -> str:
+        """나레이션 텍스트 -> MP3 음성 파일 생성"""
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        asyncio.run(self._generate_async(text, output_path))
+        return output_path
+
+    def generate_per_scene(
+        self, scenes: list[dict], output_dir: str
+    ) -> list[str]:
+        """장면별 나레이션 개별 생성"""
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+        paths = []
+
+        for scene in scenes:
+            narration = scene.get("narration", "")
+            idx = scene.get("scene_index", 0)
+            if not narration.strip():
+                continue
+
+            out_path = str(Path(output_dir) / f"scene_{idx:02d}.mp3")
+            print(f"    [TTS] 장면 {idx} 음성 생성 중...")
+            self.generate(narration, out_path)
+            paths.append(out_path)
+
+        return paths
+
+
+--- src/step3_audio/bgm.py ---
+
+"""BGM 관리 모듈 - 분위기별 무료 BGM 자동 매칭
+
+릴스 트렌드 스타일의 로열티 프리 BGM을 분위기(mood)에 따라 자동 선택합니다.
+"""
+import os
+import random
+from pathlib import Path
+
+from config.settings import DATA_DIR
+
+
+BGM_DIR = DATA_DIR / "bgm"
+
+MOOD_FOLDERS = {
+    "trendy": BGM_DIR / "trendy",
+    "warm": BGM_DIR / "warm",
+    "calm": BGM_DIR / "calm",
+    "energetic": BGM_DIR / "energetic",
+    "elegant": BGM_DIR / "elegant",
+}
+
+CATEGORY_BGM_MAP = {
+    "한식": "warm",
+    "카페": "calm",
+    "치킨": "energetic",
+    "피자": "energetic",
+    "분식": "trendy",
+    "중식": "warm",
+    "일식": "elegant",
+    "양식": "elegant",
+    "베이커리": "calm",
+    "마라탕": "trendy",
+    "기타": "warm",
+}
+
+SUPPORTED_AUDIO = {".mp3", ".wav", ".ogg", ".m4a"}
+
+
+class BGMManager:
+    """분위기 기반 BGM 자동 선택 관리자"""
+
+    def __init__(self):
+        self.bgm_dir = BGM_DIR
+        self._ensure_dirs()
+
+    def _ensure_dirs(self):
+        """BGM 분위기별 폴더 생성"""
+        for folder in MOOD_FOLDERS.values():
+            folder.mkdir(parents=True, exist_ok=True)
+
+    def get_available_moods(self) -> dict[str, int]:
+        """각 분위기별 사용 가능한 BGM 수 반환"""
+        result = {}
+        for mood, folder in MOOD_FOLDERS.items():
+            count = len(self._list_audio_files(folder))
+            result[mood] = count
+        return result
+
+    def _list_audio_files(self, folder: Path) -> list[Path]:
+        """폴더 내 오디오 파일 목록"""
+        if not folder.exists():
+            return []
+        return [
+            f for f in folder.iterdir()
+            if f.suffix.lower() in SUPPORTED_AUDIO
+        ]
+
+    def select_bgm(self, mood: str = "", category: str = "") -> str | None:
+        """분위기 또는 업종에 맞는 BGM 자동 선택"""
+        if not mood:
+            mood = CATEGORY_BGM_MAP.get(category, "warm")
+
+        folder = MOOD_FOLDERS.get(mood, MOOD_FOLDERS["warm"])
+        files = self._list_audio_files(folder)
+
+        if files:
+            selected = random.choice(files)
+            return str(selected)
+
+        for other_mood, other_folder in MOOD_FOLDERS.items():
+            files = self._list_audio_files(other_folder)
+            if files:
+                print(f"    [BGM] '{mood}' BGM 없음 -> '{other_mood}'에서 대체 선택")
+                return str(random.choice(files))
+
+        return None
+
+    def get_status(self) -> str:
+        """BGM 라이브러리 상태 문자열"""
+        moods = self.get_available_moods()
+        total = sum(moods.values())
+        lines = [f"BGM 라이브러리: 총 {total}개"]
+        for mood, count in moods.items():
+            status = f"{count}개" if count > 0 else "없음"
+            lines.append(f"  {mood}: {status}")
+
+        if total == 0:
+            lines.append("")
+            lines.append("BGM 추가 방법:")
+            lines.append(f"  {self.bgm_dir}/<mood>/ 폴더에 MP3 파일을 넣어주세요.")
+            lines.append("  mood: trendy, warm, calm, energetic, elegant")
+            lines.append("")
+            lines.append("무료 BGM 다운로드:")
+            lines.append("  - Pixabay Music: https://pixabay.com/music/")
+            lines.append("  - YouTube Audio Library: YouTube 스튜디오 > 오디오 라이브러리")
+
+        return "\n".join(lines)
+
+
+--- src/step3_audio/mixer.py ---
+
+"""오디오 믹서 - TTS 나레이션 + BGM 합성
+
+장면별 TTS 음성과 BGM을 믹싱하여 최종 오디오 트랙을 생성합니다.
+- 장면별 TTS를 타이밍에 맞게 배치
+- BGM을 영상 길이에 맞게 루프/페이드
+- 나레이션이 나올 때 BGM 볼륨 자동 조절 (ducking)
+"""
+from pathlib import Path
+
+from pydub import AudioSegment
+from pydub.effects import normalize
+
+
+class AudioMixer:
+    """TTS 나레이션 + BGM 믹싱"""
+
+    def __init__(self):
+        self.bgm_volume_db = -18
+        self.bgm_duck_db = -25
+        self.narration_volume_db = 0
+        self.fade_in_ms = 1000
+        self.fade_out_ms = 2000
+
+    def mix(
+        self,
+        scene_audio_paths: list[dict],
+        bgm_path: str | None,
+        total_duration_ms: int,
+        output_path: str,
+    ) -> str:
+        """장면별 TTS + BGM -> 최종 오디오 파일"""
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+        canvas = AudioSegment.silent(duration=total_duration_ms)
+
+        narration_regions = []
+
+        for scene in scene_audio_paths:
+            audio_path = scene.get("path", "")
+            start_ms = int(scene.get("start_ms", 0))
+
+            if not audio_path or not Path(audio_path).exists():
+                continue
+
+            tts_audio = AudioSegment.from_file(audio_path)
+            tts_audio = tts_audio + self.narration_volume_db
+
+            scene_duration_ms = int(scene.get("duration_ms", len(tts_audio)))
+            if len(tts_audio) > scene_duration_ms:
+                tts_audio = tts_audio[:scene_duration_ms]
+
+            canvas = canvas.overlay(tts_audio, position=start_ms)
+            narration_regions.append((start_ms, start_ms + len(tts_audio)))
+
+        if bgm_path and Path(bgm_path).exists():
+            bgm = self._prepare_bgm(bgm_path, total_duration_ms)
+            bgm = self._apply_ducking(bgm, narration_regions)
+            canvas = canvas.overlay(bgm)
+
+        canvas = normalize(canvas)
+        canvas.export(output_path, format="mp3", bitrate="192k")
+
+        return output_path
+
+    def _prepare_bgm(self, bgm_path: str, target_duration_ms: int) -> AudioSegment:
+        """BGM을 영상 길이에 맞게 준비 (루프 + 페이드)"""
+        bgm = AudioSegment.from_file(bgm_path)
+        bgm = bgm + self.bgm_volume_db
+
+        if len(bgm) < target_duration_ms:
+            loops_needed = (target_duration_ms // len(bgm)) + 1
+            bgm = bgm * loops_needed
+
+        bgm = bgm[:target_duration_ms]
+        bgm = bgm.fade_in(self.fade_in_ms).fade_out(self.fade_out_ms)
+
+        return bgm
+
+    def _apply_ducking(
+        self, bgm: AudioSegment, narration_regions: list[tuple]
+    ) -> AudioSegment:
+        """나레이션 구간에서 BGM 볼륨 낮추기 (ducking)"""
+        if not narration_regions:
+            return bgm
+
+        duck_amount = self.bgm_duck_db - self.bgm_volume_db
+
+        for start_ms, end_ms in narration_regions:
+            start_ms = max(0, start_ms)
+            end_ms = min(len(bgm), end_ms)
+
+            if start_ms >= end_ms:
+                continue
+
+            before = bgm[:start_ms]
+            during = bgm[start_ms:end_ms] + duck_amount
+            after = bgm[end_ms:]
+            bgm = before + during + after
+
+        return bgm
+
+    def mix_simple(
+        self,
+        narration_path: str,
+        bgm_path: str | None,
+        output_path: str,
+    ) -> str:
+        """간단 믹싱: 전체 나레이션 1파일 + BGM -> 출력"""
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+        narration = AudioSegment.from_file(narration_path)
+        narration = normalize(narration)
+
+        total_ms = len(narration) + 2000
+
+        if bgm_path and Path(bgm_path).exists():
+            bgm = self._prepare_bgm(bgm_path, total_ms)
+            bgm = bgm + (self.bgm_duck_db - self.bgm_volume_db)
+            canvas = bgm.overlay(narration, position=500)
+        else:
+            canvas = AudioSegment.silent(duration=500) + narration
+
+        canvas = normalize(canvas)
+        canvas.export(output_path, format="mp3", bitrate="192k")
+        return output_path
+
+
+--- src/step3_audio/__init__.py ---
+
+from .tts import TTSGenerator
+from .bgm import BGMManager
+from .mixer import AudioMixer
+
+__all__ = ["TTSGenerator", "BGMManager", "AudioMixer"]
+
+
+--- run_step3.py ---
+
+"""STEP 3 실행 스크립트 - 오디오 합성 (TTS + BGM)
+
+STEP 2 결과(step2_storyboard.json)를 읽어서:
+1. 장면별 나레이션 음성 생성 (Edge TTS, 무료)
+2. 분위기에 맞는 BGM 자동 선택
+3. TTS + BGM 믹싱 -> 최종 오디오 트랙
+
+사용법:
+  python run_step3.py
+  python run_step3.py --input data/output/step2_storyboard.json
+"""
+import sys
+import io
+import json
+import argparse
+from pathlib import Path
+
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+sys.path.insert(0, str(Path(__file__).parent))
+
+from config.settings import OUTPUT_DIR, DATA_DIR
+from src.step3_audio.tts import TTSGenerator
+from src.step3_audio.bgm import BGMManager
+from src.step3_audio.mixer import AudioMixer
+
+
+def main():
+    parser = argparse.ArgumentParser(description="릴몽 STEP 3: 오디오 합성")
+    parser.add_argument(
+        "--input",
+        default=str(OUTPUT_DIR / "step2_storyboard.json"),
+        help="STEP 2 스토리보드 JSON 경로",
+    )
+    args = parser.parse_args()
+
+    input_path = Path(args.input)
+
+    print("=" * 50)
+    print("  릴몽 STEP 3: 오디오 합성")
+    print("  (Edge TTS + BGM 자동 매칭)")
+    print("=" * 50)
+    print()
+
+    if not input_path.exists():
+        print(f"[!] STEP 2 결과 파일을 찾을 수 없습니다: {input_path}")
+        print("    -> 먼저 'python run_step2.py'를 실행해주세요.")
+        return
+
+    with open(input_path, "r", encoding="utf-8") as f:
+        storyboard = json.load(f)
+
+    store_name = storyboard["store_name"]
+    category = storyboard.get("category", "기타")
+    bgm_mood = storyboard.get("bgm_mood", "warm")
+    scenes = storyboard.get("scenes", [])
+    total_duration = storyboard.get("total_duration", 30)
+
+    print(f"[v] 스토리보드 로드 완료")
+    print(f"    매장: {store_name}")
+    print(f"    장면 수: {len(scenes)}개")
+    print(f"    총 길이: {total_duration}초")
+    print(f"    BGM 분위기: {bgm_mood}")
+    print()
+
+    print("[*] TTS 나레이션 생성 중...")
+    tts = TTSGenerator.for_category(category)
+
+    audio_dir = OUTPUT_DIR / "audio"
+    audio_dir.mkdir(parents=True, exist_ok=True)
+
+    scene_audios = []
+    for scene in scenes:
+        idx = scene["scene_index"]
+        narration = scene.get("narration", "")
+        if not narration.strip():
+            continue
+
+        out_path = str(audio_dir / f"scene_{idx:02d}.mp3")
+        print(f"    [TTS] 장면 {idx}: {narration[:30]}...")
+        tts.generate(narration, out_path)
+
+        scene_audios.append({
+            "path": out_path,
+            "start_ms": int(scene.get("start_time", 0) * 1000),
+            "duration_ms": int(scene.get("duration", 5) * 1000),
+            "scene_index": idx,
+        })
+
+    print(f"[v] TTS 완료: {len(scene_audios)}개 음성 파일 생성")
+    print()
+
+    print("[*] BGM 매칭 중...")
+    bgm_manager = BGMManager()
+    print(f"    {bgm_manager.get_status()}")
+    print()
+
+    bgm_path = bgm_manager.select_bgm(mood=bgm_mood, category=category)
+    if bgm_path:
+        print(f"[v] BGM 선택: {Path(bgm_path).name}")
+    else:
+        print("[!] BGM 파일이 없습니다. 나레이션만으로 오디오를 생성합니다.")
+        print(f"    -> data/bgm/{bgm_mood}/ 폴더에 MP3 파일을 넣으면 자동 매칭됩니다.")
+    print()
+
+    print("[*] 오디오 믹싱 중...")
+    mixer = AudioMixer()
+
+    total_duration_ms = int(total_duration * 1000)
+    final_audio_path = str(OUTPUT_DIR / "step3_final_audio.mp3")
+
+    mixer.mix(
+        scene_audio_paths=scene_audios,
+        bgm_path=bgm_path,
+        total_duration_ms=total_duration_ms,
+        output_path=final_audio_path,
+    )
+
+    print(f"[v] 최종 오디오 저장: {final_audio_path}")
+    print()
+
+    full_narration = storyboard.get("script_full_text", "")
+    if full_narration:
+        full_narration_path = str(audio_dir / "full_narration.mp3")
+        print("[*] 전체 나레이션 단일 파일 생성 중...")
+        tts.generate(full_narration, full_narration_path)
+        print(f"[v] 전체 나레이션: {full_narration_path}")
+
+    print()
+    print("[v] STEP 3 완료!")
+    print(f"    -> step3_final_audio.mp3  : 최종 오디오 (TTS + BGM)")
+    print(f"    -> audio/scene_XX.mp3     : 장면별 TTS 파일")
+    print(f"    -> audio/full_narration.mp3 : 전체 나레이션")
+    print()
+    print("    다음: STEP 4 (비디오 렌더링)에서 이 오디오 + 이미지를 합성합니다.")
+
+
+if __name__ == "__main__":
+    main()
+
+
+================================================================================
+8. STEP 4: 비디오 렌더링
+================================================================================
+
+--- src/step4_video/effects.py ---
+
+"""STEP 4 비디오 이펙트 - 장면별 영상 효과 (MoviePy 2.x)
+
+지원 효과:
+- ken_burns: 느린 팬 + 줌 (다큐멘터리 스타일)
+- zoom_in: 점진적 확대
+- zoom_out: 점진적 축소
+- fade: 페이드인
+- slide: 좌->우 슬라이드
+"""
+import numpy as np
+from PIL import Image
+from moviepy import ImageClip, VideoClip
+
+
+def apply_effect(image_path: str, duration: float, effect: str, fps: int = 30,
+                 target_w: int = 1080, target_h: int = 1920) -> ImageClip:
+    """이미지에 영상 효과를 적용하여 VideoClip 반환"""
+    img = Image.open(image_path).convert("RGB")
+    img = _fit_image_to_vertical(img, target_w, target_h, scale=1.3)
+    base_array = np.array(img)
+
+    effect_map = {
+        "ken_burns": _ken_burns,
+        "zoom_in": _zoom_in,
+        "zoom_out": _zoom_out,
+        "fade": _fade,
+        "slide": _slide,
+    }
+
+    effect_fn = effect_map.get(effect, _ken_burns)
+    clip = effect_fn(base_array, duration, fps, target_w, target_h)
+
+    return clip
+
+
+def _fit_image_to_vertical(img: Image.Image, target_w: int, target_h: int,
+                           scale: float = 1.3) -> Image.Image:
+    """이미지를 9:16 세로 비율에 맞게 크롭 + 리사이즈 (이펙트 여유분 포함)"""
+    target_ratio = target_w / target_h
+    img_w, img_h = img.size
+    img_ratio = img_w / img_h
+
+    if img_ratio > target_ratio:
+        new_h = img_h
+        new_w = int(img_h * target_ratio)
+        x_offset = (img_w - new_w) // 2
+        img = img.crop((x_offset, 0, x_offset + new_w, new_h))
+    else:
+        new_w = img_w
+        new_h = int(img_w / target_ratio)
+        y_offset = max(0, (img_h - new_h) // 2)
+        img = img.crop((0, y_offset, new_w, y_offset + new_h))
+
+    img = img.resize((int(target_w * scale), int(target_h * scale)), Image.LANCZOS)
+    return img
+
+
+def _crop_and_resize(frame: np.ndarray, x: int, y: int,
+                     crop_w: int, crop_h: int,
+                     target_w: int, target_h: int) -> np.ndarray:
+    """프레임에서 크롭 후 타겟 크기로 리사이즈"""
+    h, w = frame.shape[:2]
+    x = max(0, min(x, w - crop_w))
+    y = max(0, min(y, h - crop_h))
+    crop_w = min(crop_w, w - x)
+    crop_h = min(crop_h, h - y)
+
+    cropped = frame[y:y + crop_h, x:x + crop_w]
+    img = Image.fromarray(cropped)
+    img = img.resize((target_w, target_h), Image.LANCZOS)
+    return np.array(img)
+
+
+def _ken_burns(base: np.ndarray, duration: float, fps: int,
+               target_w: int, target_h: int) -> ImageClip:
+    """Ken Burns 효과: 느린 팬 + 살짝 줌인"""
+    ch, cw = base.shape[:2]
+
+    def make_frame(t):
+        progress = t / duration if duration > 0 else 0
+        zoom = 1.0 - 0.15 * progress
+        crop_w = min(int(target_w / zoom), cw)
+        crop_h = min(int(target_h / zoom), ch)
+
+        max_x = cw - crop_w
+        max_y = ch - crop_h
+        x = int(max_x * progress * 0.5)
+        y = int(max_y * progress * 0.3)
+
+        return _crop_and_resize(base, x, y, crop_w, crop_h, target_w, target_h)
+
+    return VideoClip(make_frame, duration=duration).with_fps(fps)
+
+
+def _zoom_in(base: np.ndarray, duration: float, fps: int,
+             target_w: int, target_h: int) -> ImageClip:
+    """줌인 효과: 점진적 확대"""
+    ch, cw = base.shape[:2]
+
+    def make_frame(t):
+        progress = t / duration if duration > 0 else 0
+        zoom = 1.0 - 0.25 * progress
+        crop_w = min(int(target_w / zoom), cw)
+        crop_h = min(int(target_h / zoom), ch)
+
+        x = (cw - crop_w) // 2
+        y = (ch - crop_h) // 2
+
+        return _crop_and_resize(base, x, y, crop_w, crop_h, target_w, target_h)
+
+    return VideoClip(make_frame, duration=duration).with_fps(fps)
+
+
+def _zoom_out(base: np.ndarray, duration: float, fps: int,
+              target_w: int, target_h: int) -> ImageClip:
+    """줌아웃 효과: 점진적 축소"""
+    ch, cw = base.shape[:2]
+
+    def make_frame(t):
+        progress = t / duration if duration > 0 else 0
+        zoom = 0.75 + 0.25 * progress
+        crop_w = min(int(target_w / zoom), cw)
+        crop_h = min(int(target_h / zoom), ch)
+
+        x = (cw - crop_w) // 2
+        y = (ch - crop_h) // 2
+
+        return _crop_and_resize(base, x, y, crop_w, crop_h, target_w, target_h)
+
+    return VideoClip(make_frame, duration=duration).with_fps(fps)
+
+
+def _fade(base: np.ndarray, duration: float, fps: int,
+          target_w: int, target_h: int) -> ImageClip:
+    """페이드인 효과: 검정에서 서서히 나타남"""
+    ch, cw = base.shape[:2]
+
+    def make_frame(t):
+        fade_duration = min(0.5, duration * 0.3)
+        alpha = min(1.0, t / fade_duration) if fade_duration > 0 else 1.0
+
+        crop_w = min(target_w, cw)
+        crop_h = min(target_h, ch)
+        x = (cw - crop_w) // 2
+        y = (ch - crop_h) // 2
+
+        frame = _crop_and_resize(base, x, y, crop_w, crop_h, target_w, target_h)
+        return (frame * alpha).astype(np.uint8)
+
+    return VideoClip(make_frame, duration=duration).with_fps(fps)
+
+
+def _slide(base: np.ndarray, duration: float, fps: int,
+           target_w: int, target_h: int) -> ImageClip:
+    """슬라이드 효과: 좌->우로 천천히 이동"""
+    ch, cw = base.shape[:2]
+
+    def make_frame(t):
+        progress = t / duration if duration > 0 else 0
+        crop_w = min(target_w, cw)
+        crop_h = min(target_h, ch)
+
+        max_x = max(0, cw - crop_w)
+        x = int(max_x * progress)
+        y = (ch - crop_h) // 2
+
+        return _crop_and_resize(base, x, y, crop_w, crop_h, target_w, target_h)
+
+    return VideoClip(make_frame, duration=duration).with_fps(fps)
+
+
+--- src/step4_video/renderer.py ---
+
+"""STEP 4 비디오 렌더러 - 이미지 + 오디오 + 자막 -> 최종 MP4 (MoviePy 2.x)
+
+스토리보드(step2)와 오디오(step3)를 결합하여 9:16 세로 숏폼 영상을 생성합니다.
+- 장면별 이미지에 효과(Ken Burns, 줌, 페이드 등) 적용
+- 장면 전환(crossfade, cut, fade_black) 처리
+- 자막 오버레이 (PIL 직접 렌더링)
+- 오프닝 후크 + 클로징 CTA 텍스트 오버레이
+- 최종 오디오 트랙 합성
+"""
+import numpy as np
+from pathlib import Path
+from PIL import Image, ImageDraw, ImageFont
+
+from moviepy import (
+    AudioFileClip,
+    ColorClip,
+    CompositeVideoClip,
+    ImageClip,
+    concatenate_videoclips,
+    vfx,
+)
+
+from src.step4_video.effects import apply_effect
+
+
+_KOREAN_FONT_PATHS = [
+    "C:/Windows/Fonts/malgunbd.ttf",
+    "C:/Windows/Fonts/malgun.ttf",
+    "C:/Windows/Fonts/NanumGothicBold.ttf",
+    "C:/Windows/Fonts/NanumGothic.ttf",
+    "C:/Windows/Fonts/gulim.ttc",
+]
+
+
+def _find_korean_font() -> str:
+    """사용 가능한 한국어 폰트 파일 경로 탐색"""
+    for font_path in _KOREAN_FONT_PATHS:
+        if Path(font_path).exists():
+            return font_path
+    return "C:/Windows/Fonts/arial.ttf"
+
+
+def _render_text_image(
+    text: str,
+    font_path: str,
+    font_size: int,
+    text_color: tuple = (255, 255, 255, 255),
+    stroke_color: tuple = (0, 0, 0, 255),
+    stroke_width: int = 2,
+    bg_color: tuple = (0, 0, 0, 140),
+    max_width: int = 900,
+    padding: tuple = (24, 16),
+) -> np.ndarray:
+    """PIL로 텍스트를 RGBA 이미지로 렌더링"""
+    font = ImageFont.truetype(font_path, font_size)
+
+    lines = _wrap_text(text, font, max_width)
+    line_spacing = int(font_size * 0.35)
+
+    dummy_img = Image.new("RGBA", (1, 1))
+    draw = ImageDraw.Draw(dummy_img)
+
+    line_heights = []
+    line_widths = []
+    for line in lines:
+        bbox = draw.textbbox((0, 0), line, font=font, stroke_width=stroke_width)
+        line_widths.append(bbox[2] - bbox[0])
+        line_heights.append(bbox[3] - bbox[1])
+
+    total_text_w = max(line_widths) if line_widths else 0
+    total_text_h = sum(line_heights) + line_spacing * (len(lines) - 1) if lines else 0
+
+    pad_x, pad_y = padding
+    img_w = total_text_w + pad_x * 2
+    img_h = total_text_h + pad_y * 2
+
+    img = Image.new("RGBA", (img_w, img_h), bg_color)
+    draw = ImageDraw.Draw(img)
+
+    y_cursor = pad_y
+    for i, line in enumerate(lines):
+        bbox = draw.textbbox((0, 0), line, font=font, stroke_width=stroke_width)
+        lw = bbox[2] - bbox[0]
+        x = (img_w - lw) // 2
+
+        if stroke_width > 0:
+            draw.text((x, y_cursor), line, font=font,
+                      fill=text_color, stroke_width=stroke_width,
+                      stroke_fill=stroke_color)
+        else:
+            draw.text((x, y_cursor), line, font=font, fill=text_color)
+
+        y_cursor += line_heights[i] + line_spacing
+
+    return np.array(img)
+
+
+def _wrap_text(text: str, font: ImageFont.FreeTypeFont, max_width: int) -> list[str]:
+    """텍스트를 max_width에 맞게 줄바꿈"""
+    if not text:
+        return []
+
+    dummy_img = Image.new("RGBA", (1, 1))
+    draw = ImageDraw.Draw(dummy_img)
+
+    bbox = draw.textbbox((0, 0), text, font=font)
+    if bbox[2] - bbox[0] <= max_width:
+        return [text]
+
+    lines = []
+    current = ""
+    for char in text:
+        test = current + char
+        bbox = draw.textbbox((0, 0), test, font=font)
+        if bbox[2] - bbox[0] > max_width:
+            if current:
+                lines.append(current)
+            current = char
+        else:
+            current = test
+    if current:
+        lines.append(current)
+
+    return lines
+
+
+class VideoRenderer:
+    """숏폼 비디오 렌더러"""
+
+    def __init__(self, width: int = 1080, height: int = 1920, fps: int = 30):
+        self.width = width
+        self.height = height
+        self.fps = fps
+        self.font = _find_korean_font()
+        print(f"    [폰트] {Path(self.font).name}")
+
+    def render(
+        self,
+        storyboard: dict,
+        audio_path: str,
+        output_path: str,
+    ) -> str:
+        """스토리보드 + 오디오 -> 최종 비디오 렌더링"""
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+        scenes = storyboard.get("scenes", [])
+        opening_hook = storyboard.get("opening_hook", "")
+        closing_cta = storyboard.get("closing_cta", "")
+
+        scene_clips = []
+        for i, scene in enumerate(scenes):
+            image_path = scene.get("image_path", "")
+            duration = float(scene.get("duration", 4))
+            effect = scene.get("effect", "ken_burns")
+            subtitle = scene.get("subtitle", "")
+
+            print(f"    [장면 {i + 1}/{len(scenes)}] {effect} 효과 적용 중...")
+
+            if not image_path or not Path(image_path).exists():
+                clip = ColorClip(
+                    size=(self.width, self.height),
+                    color=(0, 0, 0),
+                    duration=duration,
+                ).with_fps(self.fps)
+            else:
+                clip = apply_effect(
+                    image_path=image_path,
+                    duration=duration,
+                    effect=effect,
+                    fps=self.fps,
+                    target_w=self.width,
+                    target_h=self.height,
+                )
+
+            if subtitle:
+                clip = self._add_subtitle(clip, subtitle, duration)
+
+            scene_clips.append(clip)
+
+        if not scene_clips:
+            print("[!] 렌더링할 장면이 없습니다.")
+            return ""
+
+        if opening_hook and scene_clips:
+            scene_clips[0] = self._add_hook_text(scene_clips[0], opening_hook)
+
+        if closing_cta and scene_clips:
+            scene_clips[-1] = self._add_cta_text(scene_clips[-1], closing_cta)
+
+        transitions = [s.get("transition", "crossfade") for s in scenes]
+        print("    [편집] 장면 연결 중...")
+        final_video = self._join_scenes(scene_clips, transitions)
+
+        if audio_path and Path(audio_path).exists():
+            print("    [오디오] 합성 중...")
+            audio = AudioFileClip(audio_path)
+            if audio.duration > final_video.duration:
+                audio = audio.subclipped(0, final_video.duration)
+            final_video = final_video.with_audio(audio)
+
+        print("    [렌더링] MP4 인코딩 중...")
+        final_video.write_videofile(
+            output_path,
+            fps=self.fps,
+            codec="libx264",
+            audio_codec="aac",
+            preset="medium",
+            threads=4,
+            logger="bar",
+        )
+
+        final_video.close()
+        return output_path
+
+    def _make_text_overlay(self, text: str, font_size: int, duration: float,
+                           text_color=(255, 255, 255, 255),
+                           stroke_color=(0, 0, 0, 255),
+                           stroke_width=2,
+                           bg_color=(0, 0, 0, 140),
+                           max_width=None) -> ImageClip:
+        """PIL로 텍스트를 렌더링하여 RGBA ImageClip 생성"""
+        if max_width is None:
+            max_width = self.width - 160
+
+        text_img = _render_text_image(
+            text=text,
+            font_path=self.font,
+            font_size=font_size,
+            text_color=text_color,
+            stroke_color=stroke_color,
+            stroke_width=stroke_width,
+            bg_color=bg_color,
+            max_width=max_width,
+        )
+        return ImageClip(text_img, is_mask=False, transparent=True).with_duration(duration)
+
+    def _add_subtitle(self, clip, text: str, duration: float):
+        """하단 중앙에 자막 오버레이"""
+        try:
+            txt_clip = self._make_text_overlay(
+                text=text,
+                font_size=44,
+                duration=duration,
+                bg_color=(0, 0, 0, 150),
+            )
+
+            txt_h = txt_clip.size[1]
+            y_pos = self.height - 180 - txt_h
+            txt_clip = txt_clip.with_position(("center", y_pos))
+
+            return CompositeVideoClip(
+                [clip, txt_clip], size=(self.width, self.height)
+            )
+        except Exception as e:
+            print(f"    [!] 자막 생성 실패: {e}")
+            return clip
+
+    def _add_hook_text(self, clip, text: str):
+        """오프닝 후크: 화면 상단 1/3 위치에 큰 텍스트 (처음 3초)"""
+        hook_duration = min(3.0, clip.duration)
+        try:
+            txt_clip = self._make_text_overlay(
+                text=text,
+                font_size=58,
+                duration=hook_duration,
+                text_color=(255, 255, 0, 255),
+                stroke_width=3,
+                bg_color=(0, 0, 0, 140),
+            ).with_effects([
+                vfx.CrossFadeIn(0.3),
+                vfx.CrossFadeOut(0.5),
+            ])
+
+            txt_h = txt_clip.size[1]
+            y_pos = self.height // 3 - txt_h // 2
+            txt_clip = txt_clip.with_position(("center", y_pos))
+
+            return CompositeVideoClip(
+                [clip, txt_clip], size=(self.width, self.height)
+            )
+        except Exception as e:
+            print(f"    [!] 후크 텍스트 생성 실패: {e}")
+            return clip
+
+    def _add_cta_text(self, clip, text: str):
+        """클로징 CTA: 화면 중앙에 표시"""
+        try:
+            txt_clip = self._make_text_overlay(
+                text=text,
+                font_size=42,
+                duration=clip.duration,
+                bg_color=(0, 0, 0, 170),
+            ).with_effects([
+                vfx.CrossFadeIn(0.5),
+            ])
+
+            txt_h = txt_clip.size[1]
+            y_pos = self.height // 2 - txt_h // 2
+            txt_clip = txt_clip.with_position(("center", y_pos))
+
+            return CompositeVideoClip(
+                [clip, txt_clip], size=(self.width, self.height)
+            )
+        except Exception as e:
+            print(f"    [!] CTA 텍스트 생성 실패: {e}")
+            return clip
+
+    def _join_scenes(self, clips: list, transitions: list):
+        """장면 전환 효과를 적용하여 클립 연결"""
+        if len(clips) <= 1:
+            return clips[0] if clips else ColorClip(
+                size=(self.width, self.height), color=(0, 0, 0), duration=1
+            )
+
+        transition_duration = 0.5
+
+        has_crossfade = any(
+            transitions[i] == "crossfade"
+            for i in range(1, len(transitions))
+            if i < len(transitions)
+        )
+
+        processed = [clips[0]]
+        for i in range(1, len(clips)):
+            transition = transitions[i] if i < len(transitions) else "cut"
+
+            if transition == "crossfade":
+                clips[i] = clips[i].with_effects([
+                    vfx.CrossFadeIn(transition_duration)
+                ])
+                processed.append(clips[i])
+            elif transition == "fade_black":
+                processed[-1] = processed[-1].with_effects([
+                    vfx.CrossFadeOut(transition_duration * 0.5)
+                ])
+                clips[i] = clips[i].with_effects([
+                    vfx.CrossFadeIn(transition_duration * 0.5)
+                ])
+                processed.append(clips[i])
+            else:
+                processed.append(clips[i])
+
+        if has_crossfade:
+            return concatenate_videoclips(
+                processed, method="compose", padding=-transition_duration
+            )
+        else:
+            return concatenate_videoclips(processed, method="compose")
+
+
+--- src/step4_video/__init__.py ---
+(비어있음)
+
+
+--- run_step4.py ---
+
+"""STEP 4 실행 스크립트 - 비디오 렌더링
+
+STEP 2 결과(스토리보드) + STEP 3 결과(오디오)를 합성하여 최종 MP4 영상을 생성합니다.
+
+사용법:
+  python run_step4.py
+  python run_step4.py --storyboard data/output/step2_storyboard.json --audio data/output/step3_final_audio.mp3
+"""
+import sys
+import io
+import json
+import argparse
+from pathlib import Path
+
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+sys.path.insert(0, str(Path(__file__).parent))
+
+from config.settings import OUTPUT_DIR, VIDEO_WIDTH, VIDEO_HEIGHT, VIDEO_FPS
+from src.step4_video.renderer import VideoRenderer
+
+
+def main():
+    parser = argparse.ArgumentParser(description="릴몽 STEP 4: 비디오 렌더링")
+    parser.add_argument(
+        "--storyboard",
+        default=str(OUTPUT_DIR / "step2_storyboard.json"),
+        help="STEP 2 스토리보드 JSON 경로",
+    )
+    parser.add_argument(
+        "--audio",
+        default=str(OUTPUT_DIR / "step3_final_audio.mp3"),
+        help="STEP 3 최종 오디오 경로",
+    )
+    parser.add_argument(
+        "--output",
+        default=str(OUTPUT_DIR / "step4_final_video.mp4"),
+        help="출력 비디오 경로",
+    )
+    args = parser.parse_args()
+
+    storyboard_path = Path(args.storyboard)
+    audio_path = Path(args.audio)
+    output_path = Path(args.output)
+
+    print("=" * 50)
+    print("  릴몽 STEP 4: 비디오 렌더링")
+    print("  (MoviePy 기반 숏폼 영상 생성)")
+    print("=" * 50)
+    print()
+
+    if not storyboard_path.exists():
+        print(f"[!] 스토리보드 파일을 찾을 수 없습니다: {storyboard_path}")
+        print("    -> 먼저 'python run_step2.py'를 실행해주세요.")
+        return
+
+    with open(storyboard_path, "r", encoding="utf-8") as f:
+        storyboard = json.load(f)
+
+    store_name = storyboard.get("store_name", "")
+    scenes = storyboard.get("scenes", [])
+    total_duration = storyboard.get("total_duration", 30)
+
+    print(f"[v] 스토리보드 로드 완료")
+    print(f"    매장: {store_name}")
+    print(f"    장면 수: {len(scenes)}개")
+    print(f"    총 길이: {total_duration}초")
+    print(f"    해상도: {VIDEO_WIDTH}x{VIDEO_HEIGHT} (9:16)")
+    print(f"    FPS: {VIDEO_FPS}")
+    print()
+
+    print("[*] 이미지 파일 확인 중...")
+    valid_scenes = 0
+    for scene in scenes:
+        img_path = scene.get("image_path", "")
+        exists = Path(img_path).exists() if img_path else False
+        status = "v" if exists else "x"
+        effect = scene.get("effect", "ken_burns")
+        print(f"    [{status}] 장면 {scene.get('scene_index', '?')}: {Path(img_path).name if img_path else '없음'} ({effect})")
+        if exists:
+            valid_scenes += 1
+
+    if valid_scenes == 0:
+        print()
+        print("[!] 유효한 이미지가 없습니다. data/images/ 폴더에 이미지를 넣어주세요.")
+        return
+
+    print(f"    -> 유효 이미지: {valid_scenes}/{len(scenes)}개")
+    print()
+
+    if audio_path.exists():
+        print(f"[v] 오디오 파일 확인: {audio_path.name}")
+    else:
+        print(f"[!] 오디오 파일이 없습니다: {audio_path}")
+        print("    -> 먼저 'python run_step3.py'를 실행해주세요.")
+        print("    -> 오디오 없이 무음 영상으로 렌더링합니다.")
+    print()
+
+    print("[*] 비디오 렌더링 시작...")
+    print(f"    출력: {output_path}")
+    print()
+
+    renderer = VideoRenderer(
+        width=VIDEO_WIDTH,
+        height=VIDEO_HEIGHT,
+        fps=VIDEO_FPS,
+    )
+
+    result_path = renderer.render(
+        storyboard=storyboard,
+        audio_path=str(audio_path) if audio_path.exists() else "",
+        output_path=str(output_path),
+    )
+
+    if result_path and Path(result_path).exists():
+        file_size_mb = Path(result_path).stat().st_size / (1024 * 1024)
+        print()
+        print("[v] STEP 4 완료!")
+        print(f"    -> {output_path.name} ({file_size_mb:.1f} MB)")
+        print(f"    -> 해상도: {VIDEO_WIDTH}x{VIDEO_HEIGHT}")
+        print(f"    -> FPS: {VIDEO_FPS}")
+        print()
+        print("    다음: STEP 5 (품질 평가)에서 영상 품질을 분석합니다.")
+    else:
+        print()
+        print("[!] 비디오 렌더링에 실패했습니다.")
+
+
+if __name__ == "__main__":
+    main()
+
+
+================================================================================
+9. STEP 5: 품질 평가
+================================================================================
+
+--- src/step5_eval/evaluator.py ---
+
+"""STEP 5 품질 평가 - 생성된 숏폼 영상 품질 분석
+
+평가 항목:
+1. 기술 품질: 해상도, FPS, 파일 크기, 비트레이트
+2. 길이 적합성: 15~30초 범위 확인
+3. 오디오 동기화: 오디오-비디오 길이 일치 확인
+4. 장면 구성: 스토리보드 대비 장면 수, 타이밍 검증
+5. 자막 검증: 자막 타이밍 + 텍스트 존재 여부
+6. 종합 점수: 100점 만점 종합 평가
+"""
+import json
+from dataclasses import dataclass, field, asdict
+from pathlib import Path
+
+from moviepy import VideoFileClip, AudioFileClip
+
+
+@dataclass
+class QualityMetric:
+    """개별 평가 항목"""
+    name: str
+    score: float
+    max_score: float
+    detail: str = ""
+    passed: bool = True
+
+
+@dataclass
+class EvalResult:
+    """전체 평가 결과"""
+    video_path: str
+    total_score: float = 0.0
+    grade: str = ""
+    metrics: list = field(default_factory=list)
+    summary: str = ""
+    recommendations: list = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return {
+            "video_path": self.video_path,
+            "total_score": round(self.total_score, 1),
+            "grade": self.grade,
+            "metrics": [asdict(m) for m in self.metrics],
+            "summary": self.summary,
+            "recommendations": self.recommendations,
+        }
+
+    def to_json(self, indent: int = 2) -> str:
+        return json.dumps(self.to_dict(), ensure_ascii=False, indent=indent)
+
+    def save(self, path: str) -> None:
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(self.to_json())
+
+
+class VideoEvaluator:
+    """숏폼 영상 품질 평가기"""
+
+    TARGET_WIDTH = 1080
+    TARGET_HEIGHT = 1920
+    TARGET_FPS = 30
+    MIN_DURATION = 15.0
+    MAX_DURATION = 30.0
+    MAX_FILE_SIZE_MB = 50.0
+
+    def evaluate(
+        self,
+        video_path: str,
+        storyboard_path: str = "",
+        audio_path: str = "",
+    ) -> EvalResult:
+        """영상 품질 종합 평가"""
+        result = EvalResult(video_path=video_path)
+
+        if not Path(video_path).exists():
+            result.summary = "영상 파일을 찾을 수 없습니다."
+            result.grade = "D"
+            return result
+
+        clip = VideoFileClip(video_path)
+
+        try:
+            result.metrics.append(self._eval_resolution(clip))
+            result.metrics.append(self._eval_fps(clip))
+            result.metrics.append(self._eval_file_size(video_path))
+            result.metrics.append(self._eval_duration(clip))
+            result.metrics.append(self._eval_audio(clip, audio_path))
+
+            storyboard = None
+            if storyboard_path and Path(storyboard_path).exists():
+                with open(storyboard_path, "r", encoding="utf-8") as f:
+                    storyboard = json.load(f)
+            result.metrics.append(self._eval_scenes(clip, storyboard))
+            result.metrics.append(self._eval_bitrate(video_path, clip))
+
+            total = sum(m.score for m in result.metrics)
+            max_total = sum(m.max_score for m in result.metrics)
+            result.total_score = (total / max_total * 100) if max_total > 0 else 0
+
+            result.grade = self._calculate_grade(result.total_score)
+            result.summary = self._generate_summary(result)
+            result.recommendations = self._generate_recommendations(result)
+
+        finally:
+            clip.close()
+
+        return result
+
+    def _eval_resolution(self, clip) -> QualityMetric:
+        """해상도 평가 (15점)"""
+        w, h = clip.size
+        score = 15.0
+        detail = f"{w}x{h}"
+
+        if w < self.TARGET_WIDTH or h < self.TARGET_HEIGHT:
+            ratio = min(w / self.TARGET_WIDTH, h / self.TARGET_HEIGHT)
+            score = 15.0 * ratio
+            detail += f" (목표: {self.TARGET_WIDTH}x{self.TARGET_HEIGHT})"
+
+        actual_ratio = w / h
+        target_ratio = self.TARGET_WIDTH / self.TARGET_HEIGHT
+        if abs(actual_ratio - target_ratio) > 0.05:
+            score *= 0.8
+            detail += " [비율 불일치]"
+
+        return QualityMetric(
+            name="해상도",
+            score=round(score, 1),
+            max_score=15.0,
+            detail=detail,
+            passed=score >= 10,
+        )
+
+    def _eval_fps(self, clip) -> QualityMetric:
+        """FPS 평가 (5점)"""
+        fps = clip.fps or 0
+        detail = f"{fps:.0f} fps"
+
+        if fps >= self.TARGET_FPS:
+            score = 5.0
+        elif fps >= 24:
+            score = 4.0
+            detail += " (권장: 30fps)"
+        elif fps >= 15:
+            score = 2.5
+            detail += " (낮음)"
+        else:
+            score = 1.0
+            detail += " (매우 낮음)"
+
+        return QualityMetric(
+            name="프레임레이트",
+            score=score,
+            max_score=5.0,
+            detail=detail,
+            passed=fps >= 24,
+        )
+
+    def _eval_file_size(self, video_path: str) -> QualityMetric:
+        """파일 크기 평가 (10점)"""
+        size_mb = Path(video_path).stat().st_size / (1024 * 1024)
+        detail = f"{size_mb:.1f} MB"
+
+        if size_mb <= self.MAX_FILE_SIZE_MB:
+            score = 10.0
+        elif size_mb <= self.MAX_FILE_SIZE_MB * 1.5:
+            score = 7.0
+            detail += " (약간 큼)"
+        elif size_mb <= self.MAX_FILE_SIZE_MB * 2:
+            score = 4.0
+            detail += " (큼 - 업로드 제한 주의)"
+        else:
+            score = 2.0
+            detail += " (매우 큼 - 압축 필요)"
+
+        return QualityMetric(
+            name="파일 크기",
+            score=score,
+            max_score=10.0,
+            detail=detail,
+            passed=size_mb <= self.MAX_FILE_SIZE_MB,
+        )
+
+    def _eval_duration(self, clip) -> QualityMetric:
+        """영상 길이 평가 (20점)"""
+        duration = clip.duration
+        detail = f"{duration:.1f}초"
+
+        if self.MIN_DURATION <= duration <= self.MAX_DURATION:
+            score = 20.0
+            detail += " (적정)"
+        elif self.MIN_DURATION - 3 <= duration <= self.MAX_DURATION + 5:
+            score = 15.0
+            detail += f" (권장: {self.MIN_DURATION}~{self.MAX_DURATION}초)"
+        elif duration < self.MIN_DURATION:
+            score = 10.0 * (duration / self.MIN_DURATION)
+            detail += " (너무 짧음)"
+        else:
+            score = 10.0
+            detail += " (너무 김 - 숏폼 기준 초과)"
+
+        return QualityMetric(
+            name="영상 길이",
+            score=round(score, 1),
+            max_score=20.0,
+            detail=detail,
+            passed=self.MIN_DURATION <= duration <= self.MAX_DURATION,
+        )
+
+    def _eval_audio(self, clip, audio_path: str) -> QualityMetric:
+        """오디오 평가 (20점)"""
+        if clip.audio is None:
+            return QualityMetric(
+                name="오디오",
+                score=0,
+                max_score=20.0,
+                detail="오디오 없음",
+                passed=False,
+            )
+
+        score = 10.0
+        detail = "오디오 있음"
+
+        audio_duration = clip.audio.duration
+        video_duration = clip.duration
+        diff = abs(audio_duration - video_duration)
+
+        if diff < 0.5:
+            score += 10.0
+            detail += ", 싱크 우수"
+        elif diff < 2.0:
+            score += 7.0
+            detail += f", 싱크 양호 (차이: {diff:.1f}초)"
+        else:
+            score += 3.0
+            detail += f", 싱크 불량 (차이: {diff:.1f}초)"
+
+        return QualityMetric(
+            name="오디오",
+            score=round(score, 1),
+            max_score=20.0,
+            detail=detail,
+            passed=score >= 15,
+        )
+
+    def _eval_scenes(self, clip, storyboard: dict | None) -> QualityMetric:
+        """장면 구성 평가 (20점)"""
+        if not storyboard:
+            return QualityMetric(
+                name="장면 구성",
+                score=10.0,
+                max_score=20.0,
+                detail="스토리보드 없음 - 기본 점수 부여",
+                passed=True,
+            )
+
+        scenes = storyboard.get("scenes", [])
+        expected_duration = storyboard.get("total_duration", 0)
+        actual_duration = clip.duration
+
+        score = 0.0
+        details = []
+
+        scene_count = len(scenes)
+        if 3 <= scene_count <= 8:
+            score += 10.0
+            details.append(f"장면 {scene_count}개 (적정)")
+        elif scene_count > 0:
+            score += 5.0
+            details.append(f"장면 {scene_count}개")
+        else:
+            details.append("장면 없음")
+
+        if expected_duration > 0:
+            duration_ratio = actual_duration / expected_duration
+            if 0.8 <= duration_ratio <= 1.2:
+                score += 10.0
+                details.append("타이밍 일치")
+            elif 0.5 <= duration_ratio <= 1.5:
+                score += 5.0
+                details.append(f"타이밍 편차 ({duration_ratio:.0%})")
+            else:
+                details.append(f"타이밍 불일치 ({duration_ratio:.0%})")
+        else:
+            score += 5.0
+
+        return QualityMetric(
+            name="장면 구성",
+            score=round(score, 1),
+            max_score=20.0,
+            detail=", ".join(details),
+            passed=score >= 10,
+        )
+
+    def _eval_bitrate(self, video_path: str, clip) -> QualityMetric:
+        """비트레이트 평가 (10점)"""
+        file_size_bits = Path(video_path).stat().st_size * 8
+        duration = clip.duration if clip.duration > 0 else 1
+        bitrate_kbps = file_size_bits / duration / 1000
+
+        detail = f"{bitrate_kbps:.0f} kbps"
+
+        if 3000 <= bitrate_kbps <= 10000:
+            score = 10.0
+            detail += " (적정)"
+        elif 1500 <= bitrate_kbps <= 15000:
+            score = 7.0
+            detail += " (양호)"
+        elif bitrate_kbps < 1500:
+            score = 4.0
+            detail += " (낮음 - 화질 저하 가능)"
+        else:
+            score = 5.0
+            detail += " (높음 - 파일 크기 주의)"
+
+        return QualityMetric(
+            name="비트레이트",
+            score=score,
+            max_score=10.0,
+            detail=detail,
+            passed=score >= 7,
+        )
+
+    def _calculate_grade(self, score: float) -> str:
+        """점수 -> 등급"""
+        if score >= 90:
+            return "S"
+        elif score >= 80:
+            return "A"
+        elif score >= 65:
+            return "B"
+        elif score >= 50:
+            return "C"
+        else:
+            return "D"
+
+    def _generate_summary(self, result: EvalResult) -> str:
+        """종합 평가 요약"""
+        grade_desc = {
+            "S": "우수 - 바로 업로드 가능한 품질입니다!",
+            "A": "양호 - 약간의 개선으로 완벽해질 수 있습니다.",
+            "B": "보통 - 일부 항목 개선이 필요합니다.",
+            "C": "미흡 - 여러 항목에서 개선이 필요합니다.",
+            "D": "부족 - 주요 항목을 재작업해야 합니다.",
+        }
+        return f"등급 {result.grade} ({result.total_score:.1f}점) - {grade_desc.get(result.grade, '')}"
+
+    def _generate_recommendations(self, result: EvalResult) -> list[str]:
+        """개선 권장사항 생성"""
+        recommendations = []
+        for metric in result.metrics:
+            if not metric.passed:
+                if metric.name == "해상도":
+                    recommendations.append("원본 이미지 해상도를 높이거나 1080x1920 이미지를 사용하세요.")
+                elif metric.name == "프레임레이트":
+                    recommendations.append("FPS를 30으로 설정하세요 (settings.py에서 VIDEO_FPS 조정).")
+                elif metric.name == "파일 크기":
+                    recommendations.append("비디오 코덱 설정을 조정하거나 해상도를 낮춰 파일 크기를 줄이세요.")
+                elif metric.name == "영상 길이":
+                    recommendations.append("숏폼 최적 길이는 15~30초입니다. 스토리보드 타이밍을 조정하세요.")
+                elif metric.name == "오디오":
+                    recommendations.append("STEP 3을 다시 실행하여 오디오를 재생성하세요.")
+                elif metric.name == "장면 구성":
+                    recommendations.append("3~8개 장면으로 스토리보드를 재구성하세요.")
+                elif metric.name == "비트레이트":
+                    recommendations.append("적정 비트레이트(4000~8000 kbps)에 맞게 인코딩 설정을 조정하세요.")
+
+        if not recommendations:
+            recommendations.append("모든 항목이 기준을 충족합니다. 바로 업로드하세요!")
+
+        return recommendations
+
+
+--- src/step5_eval/__init__.py ---
+(비어있음)
+
+
+--- run_step5.py ---
+
+"""STEP 5 실행 스크립트 - 품질 평가
+
+STEP 4에서 생성된 영상의 품질을 종합 평가합니다.
+
+사용법:
+  python run_step5.py
+  python run_step5.py --video data/output/step4_final_video.mp4
+"""
+import sys
+import io
+import argparse
+from pathlib import Path
+
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+sys.path.insert(0, str(Path(__file__).parent))
+
+from config.settings import OUTPUT_DIR
+from src.step5_eval.evaluator import VideoEvaluator
+
+
+def main():
+    parser = argparse.ArgumentParser(description="릴몽 STEP 5: 품질 평가")
+    parser.add_argument(
+        "--video",
+        default=str(OUTPUT_DIR / "step4_final_video.mp4"),
+        help="평가할 영상 경로",
+    )
+    parser.add_argument(
+        "--storyboard",
+        default=str(OUTPUT_DIR / "step2_storyboard.json"),
+        help="스토리보드 JSON 경로 (선택)",
+    )
+    parser.add_argument(
+        "--audio",
+        default=str(OUTPUT_DIR / "step3_final_audio.mp3"),
+        help="원본 오디오 경로 (선택)",
+    )
+    args = parser.parse_args()
+
+    video_path = Path(args.video)
+    storyboard_path = Path(args.storyboard)
+    audio_path = Path(args.audio)
+
+    print("=" * 50)
+    print("  릴몽 STEP 5: 품질 평가")
+    print("  (숏폼 영상 종합 품질 분석)")
+    print("=" * 50)
+    print()
+
+    if not video_path.exists():
+        print(f"[!] 영상 파일을 찾을 수 없습니다: {video_path}")
+        print("    -> 먼저 'python run_step4.py'를 실행해주세요.")
+        return
+
+    file_size_mb = video_path.stat().st_size / (1024 * 1024)
+    print(f"[v] 평가 대상: {video_path.name} ({file_size_mb:.1f} MB)")
+    print()
+
+    print("[*] 품질 분석 중...")
+    evaluator = VideoEvaluator()
+
+    result = evaluator.evaluate(
+        video_path=str(video_path),
+        storyboard_path=str(storyboard_path) if storyboard_path.exists() else "",
+        audio_path=str(audio_path) if audio_path.exists() else "",
+    )
+
+    print()
+    print("-" * 50)
+    print(f"  종합 평가: {result.grade} 등급 ({result.total_score:.1f}점/100점)")
+    print("-" * 50)
+    print()
+
+    print("[항목별 평가]")
+    for metric in result.metrics:
+        status = "v" if metric.passed else "x"
+        bar_len = int(metric.score / metric.max_score * 10)
+        bar = "#" * bar_len + "-" * (10 - bar_len)
+        print(f"  [{status}] {metric.name:<10} [{bar}] {metric.score:.1f}/{metric.max_score:.1f}  {metric.detail}")
+    print()
+
+    print(f"[요약] {result.summary}")
+    print()
+
+    if result.recommendations:
+        print("[개선 권장사항]")
+        for i, rec in enumerate(result.recommendations, 1):
+            print(f"  {i}. {rec}")
+        print()
+
+    result_path = OUTPUT_DIR / "step5_eval_result.json"
+    result.save(str(result_path))
+    print(f"[v] 평가 결과 저장: {result_path.name}")
+    print()
+
+    print("=" * 50)
+    print("  릴몽 전체 파이프라인 완료!")
+    print("=" * 50)
+    print()
+    print("  STEP 1: 이미지 분석     -> step1_result.json")
+    print("  STEP 2: 스토리보드 생성  -> step2_storyboard.json")
+    print("  STEP 3: 오디오 합성     -> step3_final_audio.mp3")
+    print("  STEP 4: 비디오 렌더링   -> step4_final_video.mp4")
+    print("  STEP 5: 품질 평가       -> step5_eval_result.json")
+    print()
+
+    if result.grade in ("S", "A"):
+        print("  영상이 업로드 준비 완료되었습니다!")
+    else:
+        print("  권장사항을 참고하여 품질을 개선해보세요.")
+
+
+if __name__ == "__main__":
+    main()
+
+
+================================================================================
+10. 실행 방법 요약
+================================================================================
+
+  # 0) 사전 준비
+  pip install -r requirements.txt
+  pip install edge-tts
+  ollama pull gemma3:4b
+  ollama serve                      # 별도 터미널에서 실행
+
+  # 1) 매장 이미지를 data/images/ 에 넣기
+  # 2) (선택) BGM을 data/bgm/<mood>/ 에 넣기
+
+  # 3) 순차 실행
+  python run_step1.py               # 이미지 분석
+  python run_step2.py               # 스토리보드 생성
+  python run_step3.py               # 오디오 합성
+  python run_step4.py               # 비디오 렌더링
+  python run_step5.py               # 품질 평가
+
+  # 결과물
+  data/output/step1_result.json     # 이미지 분석 결과
+  data/output/step2_storyboard.json # 스토리보드
+  data/output/step2_subtitles.srt   # 자막
+  data/output/step3_final_audio.mp3 # 최종 오디오
+  data/output/step4_final_video.mp4 # 최종 영상 (!)
+  data/output/step5_eval_result.json# 품질 평가
+
+================================================================================
+  .gitignore
+================================================================================
+
+.env
+__pycache__/
+*.pyc
+data/output/
+data/bgm/**/*.mp3
+data/bgm/**/*.wav
+data/images/*
+!data/images/.gitkeep
+!data/bgm/**/.gitkeep
+.venv/
+
+================================================================================
+  (끝) 릴몽 파이프라인 전체 코드 정리본
+================================================================================

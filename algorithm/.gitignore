@@ -1,0 +1,25 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+
+# 결과물 (로컬에서만 생성)
+data/output/
+data/bgm/**/*.mp3
+data/bgm/**/*.wav
+data/images/*
+!data/images/.gitkeep
+!data/bgm/**/.gitkeep
+
+# crol 런타임 데이터
+crol/crol.db
+crol/keywords.json
+crol/db_check.txt
+
+# Claude Code 내부 설정
+.claude/
+**/.claude/
+
+# 가상환경
+.venv/
+venv/

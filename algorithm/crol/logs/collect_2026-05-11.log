@@ -1,0 +1,14 @@
+2026-05-11 02:12:34 [INFO] ============================================================
+2026-05-11 02:12:34 [INFO] [START] PID=12440  python=C:\Python314\python.exe
+2026-05-11 02:12:34 [INFO]         cwd=C:\Users\parkh\통합\VScode\맛노래\reelmong-test\crol  log=C:\Users\parkh\통합\VScode\맛노래\reelmong-test\crol\logs\collect_2026-05-11.log
+2026-05-11 02:12:34 [INFO] 오늘 이미 수집 완료 — 스킵 (전원 재부팅 시 중복 방지)
+2026-05-11 02:12:34 [INFO] [BYE] ========================================================
+2026-05-11 02:15:51 [INFO] ============================================================
+2026-05-11 02:15:51 [INFO] [START] PID=2884  python=C:\Python314\python.exe
+2026-05-11 02:15:51 [INFO]         cwd=C:\Users\parkh\통합\VScode\맛노래\reelmong-test\crol  log=C:\Users\parkh\통합\VScode\맛노래\reelmong-test\crol\logs\collect_2026-05-11.log
+2026-05-11 02:15:51 [INFO] 오늘 이미 수집 완료 — 스킵 (전원 재부팅 시 중복 방지)
+2026-05-11 02:15:51 [INFO] [BYE] ========================================================
+2026-05-11 14:58:51 [INFO] ============================================================
+2026-05-11 14:58:51 [INFO] [START] PID=18080  python=C:\Python314\python.exe
+2026-05-11 14:58:51 [INFO]         cwd=C:\Users\parkh\통합\VScode\맛노래\reelmong-test\crol  log=C:\Users\parkh\통합\VScode\맛노래\reelmong-test\crol\logs\collect_2026-05-11.log
+2026-05-11 14:58:54 [ERROR] 네트워크 연결 없음 → 종료 (다음 로그온 때 재시도)
